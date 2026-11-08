@@ -13,7 +13,9 @@ else
   selected=0
 fi
 
-output_dir="$(mktemp -d /private/tmp/fs80h-physical.XXXXXX)"
+download_root="${FS80H_OUTPUT_DIR:-${HOME}/Downloads}"
+mkdir -p "$download_root"
+output_dir="$(mktemp -d "${download_root}/fs80h-physical.XXXXXX")"
 output_png="$output_dir/capture.png"
 
 echo "1/4 Listing compatible scanners"

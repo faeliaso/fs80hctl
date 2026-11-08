@@ -28,6 +28,8 @@ Se a captura em frame mode expirar, teste o caminho direto de dose variável:
 FS80H_VARIABLE_DOSE=1 ./scripts/test-physical.sh
 ```
 
-O script produz a captura e manifesto apenas em `/private/tmp`, faz uma
-auto-verificação local da imagem e informa o diretório ao final. Dados
+O script produz a captura e manifesto em uma pasta temporária `fs80h-physical.*`
+dentro de `~/Downloads`, faz uma auto-verificação local da imagem e informa o
+diretório ao final. Para escolher outro local, defina `FS80H_OUTPUT_DIR`.
+Dados
 biométricos são sensíveis: revise e descarte esse diretório depois do teste.
