@@ -1,0 +1,20 @@
+[package]
+name = "fs80h-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "fs80hctl"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+fs80h-core = { path = "../fs80h-core" }
+fs80h-driver = { path = "../fs80h-driver" }
+serde.workspace = true
+serde_json.workspace = true
+
+

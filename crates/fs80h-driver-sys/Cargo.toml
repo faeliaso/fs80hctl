@@ -1,0 +1,10 @@
+[package]
+name = "fs80h-driver-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+links = "futronic_fs80h_rs"
+build = "build.rs"
+
+[build-dependencies]
+
