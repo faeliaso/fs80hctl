@@ -283,6 +283,8 @@ dependencies = [
 [[package]]
 name = "futronic-fs80h-rs"
 version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a211073a37e5dde602b1ad8a08daf21e154374c48816de5b168cc526b065fba"
 dependencies = [
  "rusb",
  "thiserror 1.0.69",

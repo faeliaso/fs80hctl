@@ -23,6 +23,3 @@ serde_json = "1.0"
 sha2 = "0.10"
 thiserror = "2.0"
 
-[patch.crates-io]
-futronic-fs80h-rs = { path = "../futronic-fs80h-rs" }
-
