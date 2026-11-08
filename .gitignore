@@ -1,4 +1,7 @@
 /target/
 .DS_Store
-captura.png
-captura.png.meta.json
+
+# Capturas locais geradas pela CLI, manifestos e derivações adjacentes.
+# Fixtures de teste em tests/fixtures continuam sendo versionados.
+/captura*
+/capture*
