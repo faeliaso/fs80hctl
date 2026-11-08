@@ -1,7 +1,6 @@
 [workspace]
 members = [
   "crates/fs80h-core",
-  "crates/fs80h-driver-sys",
   "crates/fs80h-driver",
   "crates/fs80h-cli",
 ]

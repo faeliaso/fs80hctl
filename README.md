@@ -25,11 +25,8 @@ avaliação de qualidade e comparação 1:1 local.
 - macOS Apple Silicon para o bundle atualmente incluído.
 - Para captura real: leitor Futronic FS80/FS80H conectado por USB.
 
-O bundle nativo macOS arm64 está versionado em `vendor/futronic/`. Ele contém
-a biblioteca do driver, `libusb`, cabeçalho, documentação, licenças e
-`manifest.json`; portanto o build normal não precisa de um checkout externo do
-driver. O build escolhe automaticamente a maior versão compatível para o alvo
-e ABI atuais.
+O workspace usa diretamente o crate Rust `futronic-fs80h-rs` do projeto irmão.
+Não há bridge C, biblioteca dinâmica vendorizada ou bundle de ABI para manter.
 
 ## Compilar e testar
 
@@ -111,7 +108,7 @@ captura.png.meta.json
 ```
 
 O manifesto contém UTC, SHA-256 do frame bruto, tamanho/geometria/DPI,
-resultado de qualidade, versão da ferramenta/ABI e identificação USB quando
+resultado de qualidade, versão da ferramenta e identificação USB quando
 disponível. Ele não contém dados pessoais.
 
 ### Verificar duas imagens
@@ -129,28 +126,7 @@ cargo run -p fs80h-cli -- \
 ```
 
 `--threshold` aceita valores entre 0 e 100 e aplica-se ao score determinístico
-do core. O matcher nativo recebe a conversão normalizada necessária e é
-reportado apenas como score adicional.
-
-## Atualizar o bundle do driver
-
-Para importar uma nova distribuição nativa já compilada:
-
-```sh
-./scripts/vendor-futronic.sh /caminho/para/futronic-fs80h-native-vX-alvo
-cargo check --workspace
-```
-
-O script atualiza exclusivamente o bundle do alvo informado. Consulte
-[`vendor/futronic/README.md`](vendor/futronic/README.md) para checksum e
-procedimento de rastreabilidade.
-
-`FS80H_DRIVER_DIST_DIR` é uma alternativa opcional para apontar temporariamente
-para uma distribuição externa. O bundle em `vendor/futronic/` tem prioridade,
-por isso não é necessário definir essa variável no uso normal.
-
-Consulte também [`vendor/futronic/README.md`](vendor/futronic/README.md) para o
-contrato ABI, a seleção automática e o procedimento de evolução do bundle.
+do core.
 
 ## Limites da Fase 1
 
