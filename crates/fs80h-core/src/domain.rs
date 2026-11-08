@@ -101,7 +101,6 @@ pub struct DeviceInfo {
 pub trait FingerprintScanner: Send {
     type Error: std::error::Error + Send + Sync + 'static;
     fn capture(&mut self) -> Result<RawFrame, Self::Error>;
-    fn auto_capture(&mut self, timeout_ms: u64) -> Result<RawFrame, Self::Error>;
 }
 
 #[derive(Clone, Debug, Serialize)]

@@ -93,13 +93,6 @@ Capture imediatamente:
 cargo run -p fs80h-cli -- capture --output captura.png
 ```
 
-Ou aguarde contato do dedo por até 30 segundos:
-
-```sh
-cargo run -p fs80h-cli -- \
-  capture --auto-capture --timeout-ms 30000 --output captura.png
-```
-
 A captura gera:
 
 ```text
@@ -130,6 +123,6 @@ do core.
 
 ## Limites da Fase 1
 
-Ainda não há banco SQLite, cadastro de pessoas, busca 1:N, exportação WSQ pela
-CLI, calibração estatística de limiares ou decisão pericial. Imagens biométricas
+Ainda não há auto-captura, banco SQLite, cadastro de pessoas, busca 1:N,
+exportação WSQ pela CLI, calibração estatística de limiares ou decisão pericial. Imagens biométricas
 e manifestos devem ser armazenados e descartados conforme a política aplicável.

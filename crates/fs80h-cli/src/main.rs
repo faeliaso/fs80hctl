@@ -43,15 +43,6 @@ struct CaptureArgs {
     selection: Selection,
     #[arg(short, long, default_value = "capture.png")]
     output: PathBuf,
-    #[arg(long)]
-    auto_capture: bool,
-    #[arg(long, default_value_t = 10_000)]
-    timeout_ms: u64,
-    /// Comma-separated non-destructive derivatives: inverted, normalized, enhanced.
-    #[arg(long, value_delimiter = ',')]
-    derive: Vec<String>,
-    #[arg(long, default_value = "png", value_parser = ["png", "tiff", "pgm", "wsq"])]
-    format: String,
 }
 #[derive(Args)]
 struct VerifyArgs {
@@ -109,8 +100,7 @@ fn main() -> Result<()> {
             command: DeviceCommand::Inspect(selection),
         } => {
             let scanner = selected(&selection)?;
-            let value =
-                serde_json::json!({"device":scanner.device_info()});
+            let value = serde_json::json!({"device":scanner.device_info()});
             if cli.json {
                 print(true, &value)?
             } else {
@@ -119,11 +109,7 @@ fn main() -> Result<()> {
         }
         Command::Capture(args) => {
             let mut scanner = selected(&args.selection)?;
-            let frame = if args.auto_capture {
-                scanner.auto_capture(args.timeout_ms)?
-            } else {
-                scanner.capture()?
-            };
+            let frame = scanner.capture()?;
             let quality = evaluate_quality(&frame);
             let manifest = CaptureManifest::for_frame(
                 &frame,
@@ -136,12 +122,6 @@ fn main() -> Result<()> {
             // any image container is written.
             frame.write_png(&args.output)?;
             manifest.write_adjacent(&args.output)?;
-            if args.format != "png" {
-                anyhow::bail!("formatos adicionais serão fornecidos por fs80h-formats");
-            }
-            if !args.derive.is_empty() {
-                anyhow::bail!("derivadas serão fornecidas por fs80h-formats");
-            }
             let value = serde_json::json!({"png":args.output,"manifest":format!("{}.meta.json",args.output.display()),"sha256_raw_frame":frame.sha256(),"quality":quality});
             if cli.json {
                 print(true, &value)?

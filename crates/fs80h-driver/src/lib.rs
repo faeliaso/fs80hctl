@@ -46,11 +46,16 @@ impl FutronicScanner {
     }
 
     pub fn open(info: DeviceInfo) -> Result<Self, DriverError> {
-        let device = native::FutronicDevice::open_by_id(&native::DeviceId::new(info.bus_number, info.address))?;
+        let device = native::FutronicDevice::open_by_id(&native::DeviceId::new(
+            info.bus_number,
+            info.address,
+        ))?;
         Ok(Self { device, info })
     }
 
-    pub fn device_info(&self) -> Option<DeviceInfo> { Some(self.info.clone()) }
+    pub fn device_info(&self) -> Option<DeviceInfo> {
+        Some(self.info.clone())
+    }
 }
 
 impl FingerprintScanner for FutronicScanner {
@@ -58,11 +63,5 @@ impl FingerprintScanner for FutronicScanner {
 
     fn capture(&mut self) -> Result<RawFrame, Self::Error> {
         Ok(RawFrame::new(self.device.capture_frame()?.into_bytes())?)
-    }
-
-    fn auto_capture(&mut self, _timeout_ms: u64) -> Result<RawFrame, Self::Error> {
-        // Workflow-level polling moved out of the hardware driver. The CLI keeps
-        // this trait entry point while its acquisition crate is introduced.
-        self.capture()
     }
 }
