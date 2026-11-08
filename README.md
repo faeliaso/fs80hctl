@@ -16,8 +16,9 @@ avaliação de qualidade e comparação 1:1 local.
 - Avaliação de qualidade por variância local (blocos de 16×16) e saturação.
 - Verificação 1:1 determinística por minúcias espaciais, com score de 0 a 100.
 - Score adicional do matcher nativo quando a criação de template ISO for aceita.
+- Subcomando `doctor` para diagnóstico do subsistema USB, permissões e ambiente de gravação.
 - Saída humana padrão ou JSON com `--json`.
-- Fixtures sintéticas e testes executáveis sem hardware.
+- Fixtures sintéticas e testes executáveis sem hardware (20 testes automatizados).
 
 ## Requisitos
 
@@ -25,7 +26,7 @@ avaliação de qualidade e comparação 1:1 local.
 - macOS Apple Silicon para o bundle atualmente incluído.
 - Para captura real: leitor Futronic FS80/FS80H conectado por USB.
 
-O workspace usa diretamente o crate Rust `futronic-fs80h-rs` do projeto irmão.
+O workspace utiliza o crate Rust [`futronic-fs80h-rs`](https://crates.io/crates/futronic-fs80h-rs) publicado no crates.io.
 Não há bridge C, biblioteca dinâmica vendorizada ou bundle de ABI para manter.
 
 ## Compilar e testar
@@ -52,6 +53,15 @@ Durante desenvolvimento, execute a CLI pelo Cargo:
 
 ```sh
 cargo run -p fs80h-cli -- <comando>
+```
+
+### Diagnóstico do ambiente (`doctor`)
+
+Para inspecionar o subsistema USB, conectividade com leitores e permissões:
+
+```sh
+cargo run -p fs80h-cli -- doctor
+cargo run -p fs80h-cli -- --json doctor
 ```
 
 ### Listar dispositivos
@@ -95,6 +105,12 @@ Capture imediatamente:
 cargo run -p fs80h-cli -- capture --output captura.png
 ```
 
+Por padrão, a imagem é gravada no **padrão biométrico AFIS** (cristas papilares escuras sobre fundo claro). Caso deseje o sinal óptico bruto do sensor (sem inversão, com cristas claras em fundo escuro), use a flag `--raw`:
+
+```sh
+cargo run -p fs80h-cli -- capture --raw --output captura_raw.png
+```
+
 A captura gera:
 
 ```text
@@ -102,7 +118,8 @@ captura.png
 captura.png.meta.json
 ```
 
-O manifesto contém UTC, SHA-256 do frame bruto, tamanho/geometria/DPI,
+O manifesto contém UTC, SHA-256 do frame bruto (sempre calculado sobre o sensor original),
+se a imagem está no padrão AFIS (`standard_afis`), tamanho/geometria/DPI,
 resultado de qualidade, versão da ferramenta e identificação USB quando
 disponível. Ele não contém dados pessoais.
 
@@ -122,6 +139,19 @@ cargo run -p fs80h-cli -- \
 
 `--threshold` aceita valores entre 0 e 100 e aplica-se ao score determinístico
 do core.
+
+Use `--exit-code` para que o comando retorne código de saída `1` caso o score não atinja o limiar:
+
+```sh
+cargo run -p fs80h-cli -- \
+  verify probe.png reference.png --threshold 40 --exit-code
+```
+
+## Governança e Segurança
+
+- [LICENSE](LICENSE): Licença MIT.
+- [SECURITY.md](SECURITY.md): Política de dados biométricos, minimização e reporte de vulnerabilidades.
+- [CONTRIBUTING.md](CONTRIBUTING.md): Diretrizes para contribuição e proibição de biometria real no repositório.
 
 ## Limites da Fase 1
 

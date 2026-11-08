@@ -1,7 +1,16 @@
+# Build and OS
 /target/
 .DS_Store
 
-# Capturas locais geradas pela CLI, manifestos e derivações adjacentes.
-# Fixtures de teste em tests/fixtures continuam sendo versionados.
-/captura*
-/capture*
+# Bloqueio rigoroso de dados biométricos locais e manifestos:
+# Qualquer imagem PNG ou manifesto .meta.json gerado localmente é ignorado por padrão,
+# exceto os fixtures sintéticos autorizados e determinísticos em tests/fixtures.
+*.png
+*.meta.json
+
+!tests/fixtures/*.png
+!tests/fixtures/*.meta.json
+
+# Diretórios temporários de teste físico / scripts locais
+*fs80h-physical*
+/output/

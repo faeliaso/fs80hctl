@@ -16,4 +16,9 @@ fs80h-driver = { path = "../fs80h-driver" }
 serde.workspace = true
 serde_json.workspace = true
 
+[[test]]
+name = "cli_tests"
+path = "../../tests/cli_tests.rs"
+
+
 

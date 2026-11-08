@@ -282,7 +282,7 @@ dependencies = [
 
 [[package]]
 name = "futronic-fs80h-rs"
-version = "0.3.0"
+version = "0.1.0"
 dependencies = [
  "rusb",
  "thiserror 1.0.69",

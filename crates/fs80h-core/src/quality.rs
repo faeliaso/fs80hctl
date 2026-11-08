@@ -58,3 +58,45 @@ pub fn evaluate_quality(frame: &RawFrame) -> QualityReport {
         warnings,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::FRAME_LEN;
+
+    #[test]
+    fn test_quality_uniform_white_frame() {
+        let frame = RawFrame::new(vec![255u8; FRAME_LEN]).unwrap();
+        let q = evaluate_quality(&frame);
+        assert!(!q.accepted);
+        assert_eq!(q.mean_local_variance, 0.0);
+        assert_eq!(q.saturated_ratio, 1.0);
+        assert!(q.warnings.iter().any(|w| w.contains("baixo contraste")));
+        assert!(q.warnings.iter().any(|w| w.contains("saturação excessiva")));
+    }
+
+    #[test]
+    fn test_quality_uniform_black_frame() {
+        let frame = RawFrame::new(vec![0u8; FRAME_LEN]).unwrap();
+        let q = evaluate_quality(&frame);
+        assert!(!q.accepted);
+        assert_eq!(q.mean_local_variance, 0.0);
+        assert_eq!(q.saturated_ratio, 1.0);
+    }
+
+    #[test]
+    fn test_quality_alternating_ridge_pattern() {
+        let mut pixels = vec![0u8; FRAME_LEN];
+        for (i, p) in pixels.iter_mut().enumerate() {
+            let col = i % (WIDTH as usize);
+            *p = if (col / 4).is_multiple_of(2) { 40 } else { 200 };
+        }
+        let frame = RawFrame::new(pixels).unwrap();
+        let q = evaluate_quality(&frame);
+        assert!(q.accepted);
+        assert!(q.score > 70);
+        assert!(q.mean_local_variance >= 80.0);
+        assert_eq!(q.saturated_ratio, 0.0);
+        assert!(q.warnings.is_empty());
+    }
+}

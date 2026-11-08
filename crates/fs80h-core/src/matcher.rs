@@ -99,3 +99,45 @@ pub fn compare_frames(probe: &RawFrame, reference: &RawFrame) -> MatchReport {
         warnings,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::FRAME_LEN;
+
+    #[test]
+    fn test_matcher_empty_frames_zero_minutiae() {
+        let frame1 = RawFrame::new(vec![128u8; FRAME_LEN]).unwrap();
+        let frame2 = RawFrame::new(vec![128u8; FRAME_LEN]).unwrap();
+        let report = compare_frames(&frame1, &frame2);
+        assert_eq!(report.score, 0.0);
+        assert_eq!(report.probe_minutiae, 0);
+        assert_eq!(report.reference_minutiae, 0);
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.contains("poucas minúcias"))
+        );
+    }
+
+    #[test]
+    fn test_matcher_identical_pattern_symmetry() {
+        let mut pixels = vec![0u8; FRAME_LEN];
+        for (i, p) in pixels.iter_mut().enumerate() {
+            let x = (i % WIDTH as usize) as f32;
+            let y = (i / WIDTH as usize) as f32;
+            let val = ((x / 10.0).sin() * (y / 10.0).cos() * 100.0 + 128.0) as u8;
+            *p = val;
+        }
+        let frame1 = RawFrame::new(pixels.clone()).unwrap();
+        let frame2 = RawFrame::new(pixels).unwrap();
+
+        let report1 = compare_frames(&frame1, &frame2);
+        let report2 = compare_frames(&frame2, &frame1);
+
+        assert_eq!(report1.score, 100.0);
+        assert_eq!(report2.score, 100.0);
+        assert_eq!(report1.matched_minutiae, report1.probe_minutiae);
+    }
+}

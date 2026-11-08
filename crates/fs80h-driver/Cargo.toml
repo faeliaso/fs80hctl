@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 fs80h-core = { path = "../fs80h-core" }
-futronic-fs80h-rs = { path = "../../../futronic-fs80h-rs" }
+futronic-fs80h-rs.workspace = true
 thiserror.workspace = true
 
 
