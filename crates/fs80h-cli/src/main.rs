@@ -43,6 +43,12 @@ struct CaptureArgs {
     selection: Selection,
     #[arg(short, long, default_value = "capture.png")]
     output: PathBuf,
+    /// Use the direct variable-dose acquisition path instead of frame mode.
+    #[arg(long)]
+    variable_dose: bool,
+    /// Exposure dose used with --variable-dose.
+    #[arg(long, default_value_t = 166)]
+    dose: u8,
 }
 #[derive(Args)]
 struct VerifyArgs {
@@ -109,7 +115,11 @@ fn main() -> Result<()> {
         }
         Command::Capture(args) => {
             let mut scanner = selected(&args.selection)?;
-            let frame = scanner.capture()?;
+            let frame = if args.variable_dose {
+                scanner.capture_with_dose(args.dose)?
+            } else {
+                scanner.capture()?
+            };
             let quality = evaluate_quality(&frame);
             let manifest = CaptureManifest::for_frame(
                 &frame,

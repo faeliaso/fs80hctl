@@ -56,6 +56,12 @@ impl FutronicScanner {
     pub fn device_info(&self) -> Option<DeviceInfo> {
         Some(self.info.clone())
     }
+
+    pub fn capture_with_dose(&mut self, dose: u8) -> Result<RawFrame, DriverError> {
+        Ok(RawFrame::new(
+            self.device.capture_frame_with_dose(dose)?.into_bytes(),
+        )?)
+    }
 }
 
 impl FingerprintScanner for FutronicScanner {

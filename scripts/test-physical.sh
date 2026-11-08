@@ -28,9 +28,17 @@ fi
 
 read -r -p "3/4 Place a finger on the scanner, then press Enter to capture... "
 if [[ "$selected" -eq 1 ]]; then
-  cargo run -p fs80h-cli -- capture --bus "$FS80H_BUS" --address "$FS80H_ADDRESS" --output "$output_png"
+  if [[ "${FS80H_VARIABLE_DOSE:-0}" == "1" ]]; then
+    cargo run -p fs80h-cli -- capture --bus "$FS80H_BUS" --address "$FS80H_ADDRESS" --output "$output_png" --variable-dose
+  else
+    cargo run -p fs80h-cli -- capture --bus "$FS80H_BUS" --address "$FS80H_ADDRESS" --output "$output_png"
+  fi
 else
-  cargo run -p fs80h-cli -- capture --output "$output_png"
+  if [[ "${FS80H_VARIABLE_DOSE:-0}" == "1" ]]; then
+    cargo run -p fs80h-cli -- capture --output "$output_png" --variable-dose
+  else
+    cargo run -p fs80h-cli -- capture --output "$output_png"
+  fi
 fi
 
 echo "4/4 Validating the captured PNG through the local verification pipeline"

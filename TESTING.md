@@ -22,6 +22,12 @@ Com múltiplos leitores, obtenha o barramento e endereço com `devices` e rode:
 FS80H_BUS=1 FS80H_ADDRESS=4 ./scripts/test-physical.sh
 ```
 
+Se a captura em frame mode expirar, teste o caminho direto de dose variável:
+
+```sh
+FS80H_VARIABLE_DOSE=1 ./scripts/test-physical.sh
+```
+
 O script produz a captura e manifesto apenas em `/private/tmp`, faz uma
 auto-verificação local da imagem e informa o diretório ao final. Dados
 biométricos são sensíveis: revise e descarte esse diretório depois do teste.
