@@ -36,6 +36,8 @@ cargo check --workspace
 cargo test --workspace
 ```
 
+Para validar um leitor físico conectado, use [`TESTING.md`](TESTING.md).
+
 Os testes geram imagens sintéticas e não exigem scanner conectado.
 
 Para reconstruir os fixtures versionados:
