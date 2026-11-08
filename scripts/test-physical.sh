@@ -8,9 +8,9 @@ if [[ -n "${FS80H_BUS:-}" || -n "${FS80H_ADDRESS:-}" ]]; then
     echo "Set both FS80H_BUS and FS80H_ADDRESS, or neither." >&2
     exit 2
   fi
-  selection=(--bus "$FS80H_BUS" --address "$FS80H_ADDRESS")
+  selected=1
 else
-  selection=()
+  selected=0
 fi
 
 output_dir="$(mktemp -d /private/tmp/fs80h-physical.XXXXXX)"
@@ -20,10 +20,18 @@ echo "1/4 Listing compatible scanners"
 cargo run -p fs80h-cli -- devices
 
 echo "2/4 Opening scanner"
-cargo run -p fs80h-cli -- device inspect "${selection[@]}"
+if [[ "$selected" -eq 1 ]]; then
+  cargo run -p fs80h-cli -- device inspect --bus "$FS80H_BUS" --address "$FS80H_ADDRESS"
+else
+  cargo run -p fs80h-cli -- device inspect
+fi
 
 read -r -p "3/4 Place a finger on the scanner, then press Enter to capture... "
-cargo run -p fs80h-cli -- capture "${selection[@]}" --output "$output_png"
+if [[ "$selected" -eq 1 ]]; then
+  cargo run -p fs80h-cli -- capture --bus "$FS80H_BUS" --address "$FS80H_ADDRESS" --output "$output_png"
+else
+  cargo run -p fs80h-cli -- capture --output "$output_png"
+fi
 
 echo "4/4 Validating the captured PNG through the local verification pipeline"
 cargo run -p fs80h-cli -- verify "$output_png" "$output_png" --threshold 40
