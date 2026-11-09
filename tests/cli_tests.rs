@@ -26,6 +26,43 @@ fn test_cli_help() {
     assert!(stdout.contains("capture"));
     assert!(stdout.contains("verify"));
     assert!(stdout.contains("doctor"));
+    assert!(stdout.contains("manual"));
+    assert!(stdout.contains("List connected"));
+    assert!(stdout.contains("Capture an optical"));
+}
+
+#[test]
+fn test_cli_version() {
+    let output_long = bin().arg("--version").output().expect("failed to execute");
+    assert!(output_long.status.success());
+    let stdout_long = String::from_utf8_lossy(&output_long.stdout);
+    assert!(stdout_long.contains("fs80hctl 0.1.0"));
+
+    let output_short = bin().arg("-V").output().expect("failed to execute");
+    assert!(output_short.status.success());
+    let stdout_short = String::from_utf8_lossy(&output_short.stdout);
+    assert!(stdout_short.contains("fs80hctl 0.1.0"));
+}
+
+#[test]
+fn test_cli_manual() {
+    let output = bin().arg("manual").output().expect("failed to execute");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("fs80hctl(1) - Futronic"));
+    assert!(stdout.contains("SYNOPSIS"));
+    assert!(stdout.contains("SUBCOMMANDS"));
+    assert!(stdout.contains("SUPPORTED FORMATS"));
+
+    let json_output = bin()
+        .args(["--json", "manual"])
+        .output()
+        .expect("failed to execute");
+    assert!(json_output.status.success());
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&json_output.stdout).expect("valid json output");
+    assert!(parsed.get("manual").is_some());
+    assert!(parsed["manual"].as_str().unwrap().contains("SYNOPSIS"));
 }
 
 #[test]
@@ -33,7 +70,7 @@ fn test_cli_doctor_text() {
     let output = bin().arg("doctor").output().expect("failed to execute");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Diagnóstico do fs80hctl"));
+    assert!(stdout.contains("fs80hctl Diagnostics"));
     assert!(stdout.contains("usb_subsystem"));
     assert!(stdout.contains("filesystem_write"));
 }
@@ -66,8 +103,8 @@ fn test_cli_verify_match() {
         .expect("failed to execute");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("atinge limiar"));
-    assert!(stdout.contains("Aviso: resultado é uma similaridade técnica"));
+    assert!(stdout.contains("meets threshold"));
+    assert!(stdout.contains("Warning: result is a technical similarity indicator"));
 }
 
 #[test]
@@ -82,10 +119,10 @@ fn test_cli_verify_mismatch_without_exit_code() {
         ])
         .output()
         .expect("failed to execute");
-    // Por padrão (sem --exit-code), retorna 0 mesmo não atingindo o limiar
+    // Defaults to returning 0 when threshold is not met (without --exit-code)
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("abaixo do limiar"));
+    assert!(stdout.contains("below threshold"));
 }
 
 #[test]
@@ -101,10 +138,10 @@ fn test_cli_verify_mismatch_with_exit_code() {
         ])
         .output()
         .expect("failed to execute");
-    // Com --exit-code, falha com status code 1 quando não atinge o limiar
+    // With --exit-code, exits with status code 1 when threshold is not met
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("abaixo do limiar"));
+    assert!(stdout.contains("below threshold"));
 }
 
 #[test]
@@ -139,7 +176,7 @@ fn test_cli_verify_invalid_threshold() {
         .expect("failed to execute");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("--threshold deve estar entre 0 e 100"));
+    assert!(stderr.contains("--threshold must be between 0 and 100"));
 }
 
 #[test]
@@ -150,7 +187,7 @@ fn test_cli_device_inspect_mismatched_bus_address() {
         .expect("failed to execute");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("--bus e --address devem ser usados juntos"));
+    assert!(stderr.contains("--bus and --address must be used together"));
 }
 
 #[test]
@@ -216,7 +253,7 @@ fn test_cli_convert_and_inspect() {
         .expect("failed to inspect tiff");
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("Formato detectado: tiff"));
+    assert!(stdout.contains("Detected format: tiff"));
     assert!(stdout.contains("320x480"));
 
     // 5. Inspect PGM JSON
@@ -244,7 +281,7 @@ fn test_cli_convert_and_inspect() {
         .expect("failed to cross verify");
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("atinge limiar"));
+    assert!(stdout.contains("meets threshold"));
 
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }

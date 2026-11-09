@@ -87,9 +87,11 @@ pub fn compare_frames(probe: &RawFrame, reference: &RawFrame) -> MatchReport {
     } else {
         matched as f32 / denom as f32 * 100.0
     };
-    let mut warnings = vec!["resultado é uma similaridade técnica; não é identificação civil, laudo pericial nem prova de vivacidade".into()];
+    let mut warnings = vec![
+        "result is a technical similarity indicator; not civil identification, forensic expert report, or liveness verification".into(),
+    ];
     if p.len() < 10 || r.len() < 10 {
-        warnings.push("poucas minúcias extraídas; recapture recomendada".into());
+        warnings.push("few minutiae extracted; recapture recommended".into());
     }
     MatchReport {
         score,
@@ -117,7 +119,7 @@ mod tests {
             report
                 .warnings
                 .iter()
-                .any(|w| w.contains("poucas minúcias"))
+                .any(|w| w.contains("few minutiae"))
         );
     }
 

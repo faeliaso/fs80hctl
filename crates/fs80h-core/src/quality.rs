@@ -42,12 +42,10 @@ pub fn evaluate_quality(frame: &RawFrame) -> QualityReport {
     let score = (contrast_score * 0.7 + saturation_score * 0.3).round() as u8;
     let mut warnings = Vec::new();
     if variance < 80.0 {
-        warnings.push("baixo contraste local; recapture com melhor contato".into());
+        warnings.push("low local contrast; recapture with better contact".into());
     }
     if saturated > 0.20 {
-        warnings.push(
-            "saturação excessiva; imagem possivelmente estourada ou sem contato uniforme".into(),
-        );
+        warnings.push("excessive saturation; image possibly washed out or uneven contact".into());
     }
     let accepted = variance >= 80.0 && saturated <= 0.20;
     QualityReport {
@@ -71,8 +69,8 @@ mod tests {
         assert!(!q.accepted);
         assert_eq!(q.mean_local_variance, 0.0);
         assert_eq!(q.saturated_ratio, 1.0);
-        assert!(q.warnings.iter().any(|w| w.contains("baixo contraste")));
-        assert!(q.warnings.iter().any(|w| w.contains("saturação excessiva")));
+        assert!(q.warnings.iter().any(|w| w.contains("low local contrast")));
+        assert!(q.warnings.iter().any(|w| w.contains("excessive saturation")));
     }
 
     #[test]

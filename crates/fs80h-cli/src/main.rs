@@ -11,9 +11,12 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(
     name = "fs80hctl",
-    about = "Controle técnico do leitor Futronic FS80/FS80H"
+    version,
+    about = "Technical control tool for Futronic FS80/FS80H fingerprint scanners",
+    long_about = "Technical control CLI for Futronic FS80/FS80H optical fingerprint scanners, supporting frame acquisition, SHA-256 chain of custody, forensic transcoding (PNG, TIFF 500 DPI, NIST PGM, RAW), image inspection, and 1:1 biometric verification."
 )]
 struct Cli {
+    /// Output results in structured JSON format
     #[arg(long, global = true)]
     json: bool,
     #[command(subcommand)]
@@ -22,27 +25,39 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// List connected Futronic fingerprint scanners via USB
     Devices,
+    /// Device inspection and low-level diagnostic operations
     Device {
         #[command(subcommand)]
         command: DeviceCommand,
     },
+    /// Capture an optical biometric frame from the scanner
     Capture(CaptureArgs),
+    /// Transcode biometric images across forensic formats (PNG, TIFF, PGM, RAW)
     Convert(ConvertArgs),
+    /// Inspect image dimensions, DPI, SHA-256 integrity, quality metrics, and custody manifest
     Inspect(InspectArgs),
+    /// Compare two biometric images (1:1) and compute technical similarity score
     Verify(VerifyArgs),
+    /// Run environment diagnostics (USB subsystem, device permissions, filesystem write)
     Doctor,
+    /// Display technical manual and quick reference guide
+    Manual,
 }
 
 #[derive(Subcommand)]
 enum DeviceCommand {
+    /// Inspect USB communication with the selected scanner
     Inspect(Selection),
 }
 
 #[derive(Args, Clone)]
 struct Selection {
+    /// USB bus number (e.g., 1)
     #[arg(long)]
     bus: Option<u8>,
+    /// USB device address (e.g., 2)
     #[arg(long)]
     address: Option<u8>,
 }
@@ -51,50 +66,54 @@ struct Selection {
 struct CaptureArgs {
     #[command(flatten)]
     selection: Selection,
+    /// Output file path (default: capture.png)
     #[arg(short, long, default_value = "capture.png")]
     output: PathBuf,
-    /// Formato de imagem (png, tiff, pgm, raw). Se omitido, deduz da extensão de --output.
+    /// Image format (png, tiff, pgm, raw). Inferred from output extension if omitted.
     #[arg(long)]
     format: Option<ImageFormat>,
-    /// Salva o frame óptico bruto do sensor sem inversão (cristas claras em fundo escuro)
+    /// Save raw optical sensor frame without ridge inversion (light ridges on dark background)
     #[arg(long)]
     raw: bool,
-    /// Use the direct variable-dose acquisition path instead of frame mode.
+    /// Use direct variable-dose acquisition path instead of default frame mode
     #[arg(long)]
     variable_dose: bool,
-    /// Exposure dose used with --variable-dose.
+    /// Exposure dose used with --variable-dose (default: 166)
     #[arg(long, default_value_t = 166)]
     dose: u8,
 }
 
 #[derive(Args)]
 struct ConvertArgs {
-    /// Arquivo de imagem de entrada (PNG, TIFF, PGM, RAW)
+    /// Input image file (PNG, TIFF, PGM, RAW)
     input: PathBuf,
-    /// Formato de destino (png, tiff, pgm, raw). Se omitido, deduz da extensão de --output.
+    /// Target format (png, tiff, pgm, raw). Inferred from output extension if omitted.
     #[arg(short = 't', long)]
     to: Option<ImageFormat>,
-    /// Caminho do arquivo de saída
+    /// Output file path
     #[arg(short, long)]
     output: Option<PathBuf>,
-    /// Inverte a polaridade dos pixels (255 - pixel)
+    /// Invert pixel polarity (255 - pixel)
     #[arg(long)]
     invert: bool,
 }
 
 #[derive(Args)]
 struct InspectArgs {
-    /// Arquivo de imagem a ser inspecionado (PNG, TIFF, PGM, RAW)
+    /// Biometric image file to inspect (PNG, TIFF, PGM, RAW)
     image: PathBuf,
 }
 
 #[derive(Args)]
 struct VerifyArgs {
+    /// Probe / sample image file (PNG, TIFF, PGM, RAW)
     probe: PathBuf,
+    /// Reference / template image file (PNG, TIFF, PGM, RAW)
     reference: PathBuf,
+    /// Minimum similarity threshold for verification (0 to 100)
     #[arg(long, default_value_t = 40.0)]
     threshold: f32,
-    /// Retorna código de saída 1 caso o score não atinja o limiar
+    /// Exit with code 1 if threshold is not met
     #[arg(long)]
     exit_code: bool,
 }
@@ -128,18 +147,18 @@ fn run_doctor() -> DoctorReport {
     let mut healthy = true;
     let mut devices_found = 0;
 
-    // 1. Checagem do subsistema USB / libusb
+    // 1. USB subsystem / libusb check
     match list_devices() {
         Ok(devices) => {
             devices_found = devices.len();
             checks.push(DoctorCheck {
                 name: "usb_subsystem".into(),
                 passed: true,
-                message: "Subsistema USB operacional (libusb carregado)".into(),
+                message: "USB subsystem operational (libusb loaded)".into(),
                 details: None,
             });
 
-            // 2. Detecção de hardware compatível
+            // 2. Compatible hardware detection
             if devices_found > 0 {
                 let dev_desc = devices
                     .iter()
@@ -155,17 +174,17 @@ fn run_doctor() -> DoctorReport {
                 checks.push(DoctorCheck {
                     name: "device_detection".into(),
                     passed: true,
-                    message: format!("{devices_found} leitor(es) Futronic detectado(s)"),
+                    message: format!("{devices_found} Futronic scanner(s) detected"),
                     details: Some(dev_desc),
                 });
 
-                // 3. Permissão de acesso ao leitor
+                // 3. Scanner access permissions
                 match FutronicScanner::open_first() {
                     Ok(_) => {
                         checks.push(DoctorCheck {
                             name: "device_access".into(),
                             passed: true,
-                            message: "Permissão de comunicação USB com o leitor confirmada".into(),
+                            message: "USB communication permission confirmed".into(),
                             details: None,
                         });
                     }
@@ -174,9 +193,9 @@ fn run_doctor() -> DoctorReport {
                         checks.push(DoctorCheck {
                             name: "device_access".into(),
                             passed: false,
-                            message: "Falha de permissão ao abrir o leitor USB".into(),
+                            message: "Permission error opening USB scanner".into(),
                             details: Some(format!(
-                                "{err}. No Linux, verifique as regras udev. No macOS, confirme permissões USB."
+                                "{err}. On Linux, check udev rules. On macOS, verify USB permissions."
                             )),
                         });
                     }
@@ -185,13 +204,13 @@ fn run_doctor() -> DoctorReport {
                 checks.push(DoctorCheck {
                     name: "device_detection".into(),
                     passed: false,
-                    message: "Nenhum leitor Futronic FS80/FS81 detectado na porta USB".into(),
-                    details: Some("Conecte o leitor ou verifique o cabo USB.".into()),
+                    message: "No Futronic FS80/FS81 scanner detected on USB bus".into(),
+                    details: Some("Connect the scanner or check the USB cable.".into()),
                 });
                 checks.push(DoctorCheck {
                     name: "device_access".into(),
                     passed: true,
-                    message: "Ignorado (nenhum leitor disponível para teste de abertura)".into(),
+                    message: "Skipped (no scanner available for communication test)".into(),
                     details: None,
                 });
             }
@@ -201,13 +220,13 @@ fn run_doctor() -> DoctorReport {
             checks.push(DoctorCheck {
                 name: "usb_subsystem".into(),
                 passed: false,
-                message: "Falha ao inicializar subsistema USB".into(),
+                message: "Failed to initialize USB subsystem".into(),
                 details: Some(err.to_string()),
             });
         }
     }
 
-    // 4. Permissão de escrita no diretório atual
+    // 4. Write permission in current working directory
     let test_file = std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join(format!(".fs80h_test_{}", std::process::id()));
@@ -217,7 +236,7 @@ fn run_doctor() -> DoctorReport {
             checks.push(DoctorCheck {
                 name: "filesystem_write".into(),
                 passed: true,
-                message: "Permissão de escrita no diretório de trabalho confirmada".into(),
+                message: "Write permission confirmed in current working directory".into(),
                 details: None,
             });
         }
@@ -226,7 +245,7 @@ fn run_doctor() -> DoctorReport {
             checks.push(DoctorCheck {
                 name: "filesystem_write".into(),
                 passed: false,
-                message: "Sem permissão de gravação no diretório de trabalho".into(),
+                message: "No write permission in current working directory".into(),
                 details: Some(err.to_string()),
             });
         }
@@ -245,11 +264,11 @@ fn selected(sel: &Selection) -> Result<FutronicScanner> {
             let info = list_devices()?
                 .into_iter()
                 .find(|d| d.bus_number == bus && d.address == address)
-                .context("leitor solicitado não encontrado")?;
+                .context("requested scanner not found")?;
             Ok(FutronicScanner::open(info)?)
         }
         (None, None) => Ok(FutronicScanner::open_first()?),
-        _ => anyhow::bail!("--bus e --address devem ser usados juntos"),
+        _ => anyhow::bail!("--bus and --address must be used together"),
     }
 }
 
@@ -268,7 +287,7 @@ fn main() -> Result<()> {
             if cli.json {
                 print(true, &devices)?
             } else if devices.is_empty() {
-                println!("Nenhum leitor FS80/FS80H encontrado.")
+                println!("No Futronic FS80/FS80H scanners found.")
             } else {
                 for d in devices {
                     println!(
@@ -282,11 +301,11 @@ fn main() -> Result<()> {
             command: DeviceCommand::Inspect(selection),
         } => {
             let scanner = selected(&selection)?;
-            let value = serde_json::json!({"device":scanner.device_info()});
+            let value = serde_json::json!({"device": scanner.device_info()});
             if cli.json {
                 print(true, &value)?
             } else {
-                println!("Dispositivo aberto com sucesso");
+                println!("Device opened successfully");
             }
         }
         Command::Capture(args) => {
@@ -304,8 +323,8 @@ fn main() -> Result<()> {
                 .or_else(|| ImageFormat::from_path_extension(&args.output))
                 .unwrap_or(ImageFormat::Png);
 
-            // Padrão AFIS da indústria biométrica (cristas escuras sobre fundo claro).
-            // Se --raw for fornecido, exporta o sinal óptico bruto do sensor sem inversão.
+            // Industry-standard AFIS presentation (dark ridges on light background).
+            // If --raw is provided, export the raw optical sensor signal without inversion.
             let standard_afis = !args.raw;
             let export_frame = if standard_afis {
                 raw_frame.inverted()
@@ -323,7 +342,7 @@ fn main() -> Result<()> {
                 format,
             );
 
-            // Custódia: sha256_raw_frame no manifesto registra o hash do frame bruto do sensor.
+            // Custody: sha256_raw_frame in the manifest records the hash of the raw sensor frame.
             export_frame.write_format(&args.output, format)?;
             manifest.write_adjacent(&args.output)?;
 
@@ -339,54 +358,51 @@ fn main() -> Result<()> {
             if cli.json {
                 print(true, &value)?
             } else {
-                println!("Captura gravada com sucesso em {}", args.output.display());
-                println!("Formato de arquivo: {}", format);
+                println!("Capture saved successfully to {}", args.output.display());
+                println!("File format: {}", format);
                 println!(
-                    "Padrão visual: {}",
+                    "Visual presentation: {}",
                     if standard_afis {
-                        "AFIS padrão (cristas escuras em fundo claro)"
+                        "Standard AFIS (dark ridges on light background)"
                     } else {
-                        "Óptico bruto do sensor (cristas claras em fundo escuro)"
+                        "Raw optical sensor (light ridges on dark background)"
                     }
                 );
-                println!("Manifesto de custódia: {}.meta.json", args.output.display());
-                println!("SHA-256 (frame bruto): {}", sha256_raw);
+                println!("Custody manifest: {}.meta.json", args.output.display());
+                println!("SHA-256 (raw frame): {}", sha256_raw);
                 println!(
-                    "Qualidade do frame: {}/100 ({})",
+                    "Frame quality: {}/100 ({})",
                     quality.score,
                     if quality.accepted {
-                        "aceita"
+                        "accepted"
                     } else {
-                        "rejeitada/baixa qualidade"
+                        "rejected: low quality"
                     }
                 );
                 println!(
-                    "  - Variância local média: {:.1} (mínimo: 80.0)",
+                    "  - Mean local variance: {:.1} (minimum: 80.0)",
                     quality.mean_local_variance
                 );
                 println!(
-                    "  - Saturação: {:.1}% (máximo tolerado: 20.0%)",
+                    "  - Saturation: {:.1}% (maximum tolerated: 20.0%)",
                     quality.saturated_ratio * 100.0
                 );
                 for w in &quality.warnings {
-                    println!("  Aviso de qualidade: {w}");
+                    println!("  Quality warning: {w}");
                 }
             }
         }
         Command::Convert(args) => {
             let input_frame =
-                RawFrame::from_file(&args.input).context("falha ao carregar imagem de entrada")?;
+                RawFrame::from_file(&args.input).context("failed to load input image")?;
 
             let target_format = match (args.to, &args.output) {
                 (Some(fmt), _) => fmt,
                 (None, Some(out)) => ImageFormat::from_path_extension(out).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "não foi possível deduzir formato a partir de {}",
-                        out.display()
-                    )
+                    anyhow::anyhow!("could not infer format from {}", out.display())
                 })?,
                 (None, None) => {
-                    anyhow::bail!("especifique --to <formato> ou --output <arquivo.ext>")
+                    anyhow::bail!("specify --to <format> or --output <file.ext>")
                 }
             };
 
@@ -407,7 +423,7 @@ fn main() -> Result<()> {
 
             converted_frame.write_format(&output_path, target_format)?;
 
-            // Preservação do manifesto de custódia
+            // Custody manifest preservation
             let sha256_original_raw =
                 if let Ok(parent_manifest) = Manifest::read_adjacent(&args.input) {
                     parent_manifest.sha256_raw_frame().to_string()
@@ -442,26 +458,26 @@ fn main() -> Result<()> {
                 print(true, &value)?;
             } else {
                 println!(
-                    "Conversão concluída com sucesso: {} -> {}",
+                    "Conversion completed successfully: {} -> {}",
                     args.input.display(),
                     output_path.display()
                 );
-                println!("Formato de saída: {}", target_format);
-                println!("SHA-256 da imagem gerada: {}", converted_frame.sha256());
+                println!("Output format: {}", target_format);
+                println!("SHA-256 of generated image: {}", converted_frame.sha256());
                 println!(
-                    "SHA-256 de custódia (frame original): {}",
+                    "Custody SHA-256 (original raw frame): {}",
                     sha256_original_raw
                 );
                 println!(
-                    "Manifesto derivado gerado: {}.meta.json",
+                    "Derived manifest generated: {}.meta.json",
                     output_path.display()
                 );
             }
         }
         Command::Inspect(args) => {
             let format = ImageFormat::detect(&args.image)
-                .context("falha ao identificar formato do arquivo")?;
-            let frame = RawFrame::from_file(&args.image).context("falha ao ler dados da imagem")?;
+                .context("failed to detect file format")?;
+            let frame = RawFrame::from_file(&args.image).context("failed to read image data")?;
             let quality = evaluate_quality(&frame);
             let sha256 = frame.sha256();
 
@@ -485,53 +501,53 @@ fn main() -> Result<()> {
             if cli.json {
                 print(true, &value)?;
             } else {
-                println!("Inspeção Técnica de Imagem Forense");
+                println!("Technical Biometric Image Inspection");
                 println!("===================================");
-                println!("Arquivo: {}", args.image.display());
-                println!("Formato detectado: {}", format);
+                println!("File: {}", args.image.display());
+                println!("Detected format: {}", format);
                 println!(
-                    "Resolução: {}x{} pixels @ {} DPI ({} bytes)",
+                    "Resolution: {}x{} pixels @ {} DPI ({} bytes)",
                     WIDTH, HEIGHT, DPI, FRAME_LEN
                 );
-                println!("SHA-256 do buffer: {}", sha256);
+                println!("Buffer SHA-256: {}", sha256);
                 println!(
-                    "Qualidade do frame: {}/100 ({})",
+                    "Frame quality: {}/100 ({})",
                     quality.score,
                     if quality.accepted {
-                        "aceita"
+                        "accepted"
                     } else {
-                        "baixa qualidade"
+                        "low quality"
                     }
                 );
-                println!("  - Variância local: {:.1}", quality.mean_local_variance);
-                println!("  - Saturação: {:.1}%", quality.saturated_ratio * 100.0);
+                println!("  - Local variance: {:.1}", quality.mean_local_variance);
+                println!("  - Saturation: {:.1}%", quality.saturated_ratio * 100.0);
                 if let Some(m) = &manifest {
-                    println!("Manifesto de custódia: Presente");
-                    println!("  - SHA-256 original (custódia): {}", m.sha256_raw_frame());
+                    println!("Custody manifest: Present");
+                    println!("  - Original SHA-256 (custody): {}", m.sha256_raw_frame());
                     match m {
                         Manifest::Capture(c) => {
-                            println!("  - Tipo: Captura direta (hardware)");
-                            println!("  - Data UTC: {}", c.captured_at_utc);
+                            println!("  - Type: Direct capture (hardware)");
+                            println!("  - UTC timestamp: {}", c.captured_at_utc);
                         }
                         Manifest::Derived(d) => {
-                            println!("  - Tipo: Derivado / Transcodificado");
+                            println!("  - Type: Derived / Transcoded");
                             if !d.transformations.is_empty() {
-                                println!("  - Transformações: {}", d.transformations.join(", "));
+                                println!("  - Transformations: {}", d.transformations.join(", "));
                             }
                         }
                     }
                 } else {
-                    println!("Manifesto de custódia: Ausente (.meta.json não encontrado)");
+                    println!("Custody manifest: Missing (.meta.json not found)");
                 }
             }
         }
         Command::Verify(args) => {
             if !args.threshold.is_finite() || !(0.0..=100.0).contains(&args.threshold) {
-                anyhow::bail!("--threshold deve estar entre 0 e 100");
+                anyhow::bail!("--threshold must be between 0 and 100");
             }
-            let probe = RawFrame::from_file(&args.probe).context("falha ao carregar probe")?;
+            let probe = RawFrame::from_file(&args.probe).context("failed to load probe")?;
             let reference =
-                RawFrame::from_file(&args.reference).context("falha ao carregar reference")?;
+                RawFrame::from_file(&args.reference).context("failed to load reference")?;
             let deterministic = compare_frames(&probe, &reference);
             let out = VerifyOutput {
                 threshold: args.threshold,
@@ -543,16 +559,16 @@ fn main() -> Result<()> {
                 print(true, &out)?
             } else {
                 println!(
-                    "Score determinístico: {:.1}/100 ({})",
+                    "Deterministic score: {:.1}/100 ({})",
                     out.deterministic.score,
                     if out.threshold_met {
-                        "atinge limiar"
+                        "meets threshold"
                     } else {
-                        "abaixo do limiar"
+                        "below threshold"
                     }
                 );
                 for w in &out.deterministic.warnings {
-                    println!("Aviso: {w}")
+                    println!("Warning: {w}")
                 }
             }
             if args.exit_code && !out.threshold_met {
@@ -564,27 +580,145 @@ fn main() -> Result<()> {
             if cli.json {
                 print(true, &report)?;
             } else {
-                println!("Diagnóstico do fs80hctl");
-                println!("======================");
+                println!("fs80hctl Diagnostics");
+                println!("====================");
                 for check in &report.checks {
                     let icon = if check.passed { "✓" } else { "!" };
                     println!("[{icon}] {}: {}", check.name, check.message);
                     if let Some(details) = &check.details {
-                        println!("    Detalhes: {details}");
+                        println!("    Details: {details}");
                     }
                 }
                 println!();
                 if report.healthy {
                     if report.devices_found > 0 {
-                        println!("Status geral: PRONTO (scanner conectado e operacional)");
+                        println!("Overall status: READY (scanner connected and operational)");
                     } else {
-                        println!("Status geral: OPERACIONAL (aguardando conexão de leitor USB)");
+                        println!("Overall status: OPERATIONAL (waiting for USB scanner connection)");
                     }
                 } else {
-                    println!("Status geral: ATENÇÃO (foram detectadas pendências operacionais)");
+                    println!("Overall status: WARNING (operational issues detected)");
                 }
+            }
+        }
+        Command::Manual => {
+            if cli.json {
+                print(true, &serde_json::json!({ "manual": MANUAL_TEXT.trim() }))?;
+            } else {
+                println!("{MANUAL_TEXT}");
             }
         }
     };
     Ok(())
 }
+
+const MANUAL_TEXT: &str = r#"fs80hctl(1) - Futronic FS80/FS80H Technical Control Manual
+
+NAME
+    fs80hctl - Technical acquisition, custody, and processing utility for Futronic FS80/FS80H scanners
+
+SYNOPSIS
+    fs80hctl [GLOBAL_OPTIONS] <COMMAND> [ARGUMENTS...]
+
+DESCRIPTION
+    fs80hctl is a pure-Rust command-line tool for technical and forensic operations on
+    Futronic optical fingerprint scanners (FS80, FS80H, and FS81H). It provides direct optical
+    sensor acquisition, biometric standard compliance (500 DPI), image quality metrics
+    (local variance and saturation), format transcoding with immutable chain of custody
+    (SHA-256 manifests), and deterministic 1:1 biometric comparison.
+
+GLOBAL OPTIONS
+    --json
+        Output results in structured JSON format (suitable for automation, scripts, and pipelines).
+
+    -h, --help
+        Print quick help message or subcommand syntax.
+
+    -V, --version
+        Print installed fs80hctl version.
+
+SUBCOMMANDS
+    doctor
+        Verify runtime environment: USB subsystem (libusb), scanner access permissions,
+        and current working directory write availability.
+        Examples:
+            fs80hctl doctor
+            fs80hctl --json doctor
+
+    devices
+        List all connected Futronic FS80/FS80H/FS81H scanners on the USB bus.
+        Examples:
+            fs80hctl devices
+            fs80hctl --json devices
+
+    device inspect [--bus <N>] [--address <N>]
+        Open specified device (or first available) and inspect USB communication.
+        Examples:
+            fs80hctl device inspect
+            fs80hctl device inspect --bus 1 --address 4
+
+    capture [OPTIONS]
+        Acquire a biometric frame from optical sensor (320x480 pixels @ 500 DPI, L8 grayscale).
+        Writes image file and adjacent chain-of-custody manifest (.meta.json).
+        Capture options:
+            -o, --output <FILE>       Output path (default: capture.png)
+            --format <FORMAT>         Image format: png, tiff, pgm, raw
+            --raw                     Save raw optical sensor frame without ridge inversion
+            --variable-dose           Direct variable-dose acquisition path
+            --dose <VALUE>            Exposure dose (default: 166)
+            --bus <N> / --address <N> Select specific USB device
+        Examples:
+            fs80hctl capture --output digital.png
+            fs80hctl capture --format tiff --output digital.tiff
+            fs80hctl capture --format pgm --output nist.pgm
+            fs80hctl capture --raw --output raw_sensor.png
+
+    convert <INPUT> [OPTIONS]
+        Transcode biometric images between formats, preserving root custody SHA-256 in the
+        adjacent .meta.json manifest.
+        Conversion options:
+            -t, --to <FORMAT>         Target format: png, tiff, pgm, raw
+            -o, --output <FILE>       Output file path
+            --invert                  Invert pixel polarity (255 - pixel)
+        Examples:
+            fs80hctl convert capture.png --to tiff --output forensic.tiff
+            fs80hctl convert forensic.tiff --to pgm --output print.pgm
+            fs80hctl convert forensic.tiff --to raw --output frame.raw
+
+    inspect <IMAGE>
+        Inspect biometric image metadata: dimensions, DPI, raw buffer SHA-256 hash,
+        quality metrics (local variance and saturation), and custody manifest status.
+        Examples:
+            fs80hctl inspect capture.png
+            fs80hctl --json inspect forensic.tiff
+
+    verify <PROBE> <REFERENCE> [OPTIONS]
+        Compare two biometric images (1:1) using deterministic spatial feature extraction
+        and alignment across any format combination.
+        Options:
+            --threshold <0-100>       Minimum verification score threshold (default: 40.0)
+            --exit-code               Exit with code 1 if threshold is not met
+        Examples:
+            fs80hctl verify capture.png reference.tiff
+            fs80hctl verify capture.png reference.tiff --threshold 45 --exit-code
+            fs80hctl --json verify probe.pgm ref.png
+
+    manual
+        Display this technical reference manual on standard output.
+
+SUPPORTED FORMATS
+    PNG     Standard AFIS presentation (dark ridges, light background), 500 DPI pHYs chunk.
+    TIFF    Baseline 6.0 L8 grayscale, full forensic EXIF tags (Make, Model, Software, 500 DPI).
+    PGM     Netpbm binary P5, native format for NIST NBIS tools (mindtct, bozorth3).
+    RAW/DAT Uncompressed 153,600-byte L8 buffer for NumPy, PyTorch, and ML pipelines.
+
+CHAIN OF CUSTODY
+    Every saved or converted image preserves an adjacent <IMAGE>.meta.json manifest.
+    The manifest records the SHA-256 of the raw optical frame at acquisition, UTC timestamp,
+    scanner model, and transformation lineage.
+
+EXIT CODES
+    0   Success.
+    1   Threshold not met (when using --exit-code) or operational/diagnostic failure.
+    2   Invalid command-line syntax or arguments (clap).
+"#;

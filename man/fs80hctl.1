@@ -1,0 +1,74 @@
+.TH FS80HCTL 1 "March 2026" "fs80hctl 0.1.0" "fs80hctl User Manual"
+.SH NAME
+fs80hctl \- Technical acquisition, custody, and processing utility for Futronic FS80/FS80H scanners
+.SH SYNOPSIS
+.B fs80hctl
+[\fB\-\-json\fR]
+.I COMMAND
+[\fIARGUMENTS...\fR]
+.SH DESCRIPTION
+.B fs80hctl
+is a pure-Rust command-line tool for technical and forensic operations on
+Futronic optical fingerprint scanners (FS80, FS80H, and FS81H). It provides direct
+optical sensor acquisition, biometric standard compliance (500 DPI), image quality metrics,
+format transcoding with immutable chain of custody, and deterministic 1:1 biometric comparison.
+.SH GLOBAL OPTIONS
+.TP
+.B \-\-json
+Output results in structured JSON format.
+.TP
+.BR \-h ", " \-\-help
+Print help information and syntax.
+.TP
+.BR \-V ", " \-\-version
+Print installed program version.
+.SH COMMANDS
+.TP
+.B doctor
+Run environment diagnostics (USB subsystem, device permissions, and filesystem write).
+.TP
+.B devices
+List connected Futronic fingerprint scanners on the USB bus.
+.TP
+.B device inspect [\-\-bus N] [\-\-address N]
+Open and inspect USB communication with the specified scanner.
+.TP
+.B capture [\-o FILE] [\-\-format FORMAT] [\-\-raw]
+Acquire an optical biometric frame (320x480, 500 DPI) and write the custody manifest (.meta.json).
+.TP
+.B convert INPUT [\-t FORMAT] [\-o OUTPUT] [\-\-invert]
+Transcode across formats (PNG, TIFF, PGM, RAW) while preserving chain of custody.
+.TP
+.B inspect IMAGE
+Inspect metadata, SHA-256 hash, and quality metrics of a biometric image.
+.TP
+.B verify PROBE REFERENCE [\-\-threshold T] [\-\-exit\-code]
+Compare two biometric images (1:1) and calculate technical similarity score.
+.TP
+.B manual
+Display technical reference manual and usage guide on standard output.
+.SH SUPPORTED FORMATS
+.TP
+.B PNG
+8-bit grayscale with calibrated pHYs chunk at 500 DPI.
+.TP
+.B TIFF
+Baseline 6.0 with full EXIF tags and 500 DPI resolution.
+.TP
+.B PGM
+Netpbm binary format P5 (NIST NBIS standard).
+.TP
+.B RAW
+Uncompressed 153,600-byte raw pixel dump.
+.SH EXIT CODES
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Operational failure or verification threshold not met (when \-\-exit\-code is passed).
+.TP
+.B 2
+Invalid command-line syntax or arguments.
+.SH SEE ALSO
+docs/MANUAL.md, README.md

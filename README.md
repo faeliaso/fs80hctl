@@ -45,10 +45,18 @@ Automated tests run on synthetic fixtures and pass 100% without any connected ha
 
 ## CLI Usage
 
-Execute the CLI directly via Cargo:
+Execute the CLI directly via Cargo or installed binary:
 
 ```sh
 cargo run -p fs80h-cli -- <command>
+```
+
+For the comprehensive technical manual and flag specification, see [`docs/MANUAL.md`](docs/MANUAL.md) or execute the built-in manual:
+
+```sh
+cargo run -p fs80h-cli -- manual
+cargo run -p fs80h-cli -- --help
+cargo run -p fs80h-cli -- --version
 ```
 
 ---

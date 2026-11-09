@@ -149,10 +149,10 @@ impl RawFrame {
         sha256_bytes(&self.pixels)
     }
 
-    /// Retorna uma cópia do frame com polaridade invertida (255 - pixel).
+    /// Returns a copy of the frame with inverted polarity (255 - pixel).
     ///
-    /// O sensor óptico entrega cristas claras sobre fundo escuro.
-    /// A representação AFIS padrão da indústria utiliza cristas escuras sobre fundo claro.
+    /// The optical sensor delivers light ridges on a dark background.
+    /// Standard industry AFIS representation uses dark ridges on a light background.
     #[must_use]
     pub fn inverted(&self) -> Self {
         let pixels = self.pixels.iter().map(|&p| u8::MAX - p).collect();
