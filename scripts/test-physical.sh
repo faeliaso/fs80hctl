@@ -28,18 +28,23 @@ else
   cargo run -p fs80h-cli -- device inspect
 fi
 
+wait_flag=""
+if [[ "${FS80H_WAIT:-0}" == "1" ]]; then
+  wait_flag="--wait"
+fi
+
 read -r -p "3/4 Place a finger on the scanner, then press Enter to capture... "
 if [[ "$selected" -eq 1 ]]; then
   if [[ "${FS80H_VARIABLE_DOSE:-0}" == "1" ]]; then
-    cargo run -p fs80h-cli -- capture --bus "$FS80H_BUS" --address "$FS80H_ADDRESS" --output "$output_png" --variable-dose
+    cargo run -p fs80h-cli -- capture --bus "$FS80H_BUS" --address "$FS80H_ADDRESS" --output "$output_png" --variable-dose $wait_flag
   else
-    cargo run -p fs80h-cli -- capture --bus "$FS80H_BUS" --address "$FS80H_ADDRESS" --output "$output_png"
+    cargo run -p fs80h-cli -- capture --bus "$FS80H_BUS" --address "$FS80H_ADDRESS" --output "$output_png" $wait_flag
   fi
 else
   if [[ "${FS80H_VARIABLE_DOSE:-0}" == "1" ]]; then
-    cargo run -p fs80h-cli -- capture --output "$output_png" --variable-dose
+    cargo run -p fs80h-cli -- capture --output "$output_png" --variable-dose $wait_flag
   else
-    cargo run -p fs80h-cli -- capture --output "$output_png"
+    cargo run -p fs80h-cli -- capture --output "$output_png" $wait_flag
   fi
 fi
 

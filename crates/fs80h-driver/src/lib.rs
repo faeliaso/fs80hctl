@@ -8,6 +8,8 @@ pub enum DriverError {
     Native(#[from] native::ScannerError),
     #[error(transparent)]
     Core(#[from] fs80h_core::CoreError),
+    #[error("timed out waiting for finger on scanner after {0:?}")]
+    Timeout(std::time::Duration),
 }
 
 fn device_info(value: &native::DeviceInfo) -> DeviceInfo {
@@ -61,6 +63,35 @@ impl FutronicScanner {
         Ok(RawFrame::new(
             self.device.capture_frame_with_dose(dose)?.into_bytes(),
         )?)
+    }
+
+    pub fn wait_for_finger<F>(
+        &mut self,
+        timeout: std::time::Duration,
+        min_quality: u8,
+        dose: Option<u8>,
+        mut on_poll: F,
+    ) -> Result<RawFrame, DriverError>
+    where
+        F: FnMut(&fs80h_core::FingerPresence, std::time::Duration),
+    {
+        let start = std::time::Instant::now();
+        let poll_interval = std::time::Duration::from_millis(150);
+
+        while start.elapsed() < timeout {
+            let frame = match dose {
+                Some(d) => self.capture_with_dose(d)?,
+                None => self.capture()?,
+            };
+            let presence = fs80h_core::evaluate_presence(&frame);
+            on_poll(&presence, start.elapsed());
+
+            if presence.is_present && presence.quality.score >= min_quality {
+                return Ok(frame);
+            }
+            std::thread::sleep(poll_interval);
+        }
+        Err(DriverError::Timeout(timeout))
     }
 }
 

@@ -285,3 +285,116 @@ fn test_cli_convert_and_inspect() {
 
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
+
+#[test]
+fn test_cli_capture_and_enroll_help() {
+    let out = bin()
+        .args(["capture", "--help"])
+        .output()
+        .expect("capture help");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("--wait"));
+    assert!(stdout.contains("--timeout"));
+    assert!(stdout.contains("--min-quality"));
+
+    let out = bin()
+        .args(["enroll", "--help"])
+        .output()
+        .expect("enroll help");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("--samples"));
+    assert!(stdout.contains("--timeout"));
+    assert!(stdout.contains("--min-quality"));
+}
+
+#[test]
+fn test_cli_verify_argument_validation() {
+    // Neither reference nor gallery
+    let out = bin()
+        .args(["verify", fixture("probe.png").to_str().unwrap()])
+        .output()
+        .expect("verify command");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("specify a reference file for 1:1 verification or --gallery <DIR> for 1:N")
+    );
+
+    // Both reference and gallery
+    let out = bin()
+        .args([
+            "verify",
+            fixture("probe.png").to_str().unwrap(),
+            fixture("reference_match.png").to_str().unwrap(),
+            "--gallery",
+            fixture("").parent().unwrap().to_str().unwrap(),
+        ])
+        .output()
+        .expect("verify command");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("specify either <REFERENCE> for 1:1 or --gallery <DIR> for 1:N, not both")
+    );
+}
+
+#[test]
+fn test_cli_verify_gallery_text_and_json() {
+    let fixtures_dir = fixture("probe.png").parent().unwrap().to_path_buf();
+
+    // 1. Text output
+    let out = bin()
+        .args([
+            "verify",
+            fixture("probe.png").to_str().unwrap(),
+            "--gallery",
+            fixtures_dir.to_str().unwrap(),
+            "--threshold",
+            "40",
+        ])
+        .output()
+        .expect("verify gallery text");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("1:N Gallery Verification Report"));
+    assert!(stdout.contains("candidates"));
+    assert!(stdout.contains("reference_match.png"));
+    assert!(stdout.contains("MATCH"));
+
+    // 2. JSON output
+    let out = bin()
+        .args([
+            "--json",
+            "verify",
+            fixture("probe.png").to_str().unwrap(),
+            "--gallery",
+            fixtures_dir.to_str().unwrap(),
+            "--threshold",
+            "40",
+        ])
+        .output()
+        .expect("verify gallery json");
+    assert!(out.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid json output");
+    assert!(parsed.get("matches").is_some());
+    assert!(parsed["matches"].as_array().unwrap().len() >= 3);
+    assert_eq!(parsed["threshold_met"], true);
+    assert_eq!(parsed["best_match"]["score"], 100.0);
+    let matches = parsed["matches"].as_array().unwrap();
+    assert!(matches.iter().any(|m| {
+        m["reference_path"]
+            .as_str()
+            .unwrap()
+            .contains("reference_match.png")
+            && m["matched"] == true
+    }));
+    assert!(matches.iter().any(|m| {
+        m["reference_path"]
+            .as_str()
+            .unwrap()
+            .contains("reference_mismatch.png")
+            && m["matched"] == false
+    }));
+}

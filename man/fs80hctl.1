@@ -33,8 +33,11 @@ List connected Futronic fingerprint scanners on the USB bus.
 .B device inspect [\-\-bus N] [\-\-address N]
 Open and inspect USB communication with the specified scanner.
 .TP
-.B capture [\-o FILE] [\-\-format FORMAT] [\-\-raw]
-Acquire an optical biometric frame (320x480, 500 DPI) and write the custody manifest (.meta.json).
+.B capture [\-o FILE] [\-\-format FORMAT] [\-\-raw] [\-\-wait] [\-\-timeout SECS] [\-\-min\-quality SCORE]
+Acquire an optical biometric frame (320x480, 500 DPI) and write the custody manifest (.meta.json). Use \-\-wait for auto-trigger when the finger contact stabilizes.
+.TP
+.B enroll [\-o FILE] [\-\-samples N] [\-\-timeout SECS] [\-\-min\-quality SCORE]
+Acquire multiple samples consecutively and automatically elect and save the highest quality sample (best-of-N).
 .TP
 .B convert INPUT [\-t FORMAT] [\-o OUTPUT] [\-\-invert]
 Transcode across formats (PNG, TIFF, PGM, RAW) while preserving chain of custody.
@@ -42,8 +45,8 @@ Transcode across formats (PNG, TIFF, PGM, RAW) while preserving chain of custody
 .B inspect IMAGE
 Inspect metadata, SHA-256 hash, and quality metrics of a biometric image.
 .TP
-.B verify PROBE REFERENCE [\-\-threshold T] [\-\-exit\-code]
-Compare two biometric images (1:1) and calculate technical similarity score.
+.B verify PROBE [REFERENCE] [\-\-gallery DIR] [\-\-threshold T] [\-\-exit\-code]
+Compare biometric images (1:1 with reference file or 1:N against a gallery directory) and calculate technical similarity score.
 .TP
 .B manual
 Display technical reference manual and usage guide on standard output.

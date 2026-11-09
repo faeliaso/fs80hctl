@@ -57,6 +57,26 @@ pub fn evaluate_quality(frame: &RawFrame) -> QualityReport {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct FingerPresence {
+    pub is_present: bool,
+    pub contact_ratio: f64,
+    pub quality: QualityReport,
+}
+
+pub fn evaluate_presence(frame: &RawFrame) -> FingerPresence {
+    let quality = evaluate_quality(frame);
+    // When no finger touches the prism, local variance is near 0 or saturation is extreme.
+    // Contact is detected when local contrast is present and saturation is non-total.
+    let is_present = quality.mean_local_variance >= 40.0 && quality.saturated_ratio < 0.40;
+    let contact_ratio = (quality.mean_local_variance / 200.0).clamp(0.0, 1.0);
+    FingerPresence {
+        is_present,
+        contact_ratio,
+        quality,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,7 +90,11 @@ mod tests {
         assert_eq!(q.mean_local_variance, 0.0);
         assert_eq!(q.saturated_ratio, 1.0);
         assert!(q.warnings.iter().any(|w| w.contains("low local contrast")));
-        assert!(q.warnings.iter().any(|w| w.contains("excessive saturation")));
+        assert!(
+            q.warnings
+                .iter()
+                .any(|w| w.contains("excessive saturation"))
+        );
     }
 
     #[test]
@@ -96,5 +120,24 @@ mod tests {
         assert!(q.mean_local_variance >= 80.0);
         assert_eq!(q.saturated_ratio, 0.0);
         assert!(q.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_presence_detection() {
+        let empty_frame = RawFrame::new(vec![255u8; FRAME_LEN]).unwrap();
+        let p_empty = evaluate_presence(&empty_frame);
+        assert!(!p_empty.is_present);
+        assert_eq!(p_empty.contact_ratio, 0.0);
+
+        let mut pixels = vec![0u8; FRAME_LEN];
+        for (i, p) in pixels.iter_mut().enumerate() {
+            let col = i % (WIDTH as usize);
+            *p = if (col / 4).is_multiple_of(2) { 40 } else { 200 };
+        }
+        let ridge_frame = RawFrame::new(pixels).unwrap();
+        let p_finger = evaluate_presence(&ridge_frame);
+        assert!(p_finger.is_present);
+        assert!(p_finger.contact_ratio > 0.5);
+        assert!(p_finger.quality.accepted);
     }
 }

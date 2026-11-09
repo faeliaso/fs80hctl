@@ -102,6 +102,59 @@ pub fn compare_frames(probe: &RawFrame, reference: &RawFrame) -> MatchReport {
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct GalleryMatchCandidate {
+    pub reference_path: String,
+    pub score: f32,
+    pub matched: bool,
+    pub report: MatchReport,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct GalleryMatchReport {
+    pub probe_minutiae: usize,
+    pub total_candidates: usize,
+    pub matches: Vec<GalleryMatchCandidate>,
+    pub best_match: Option<GalleryMatchCandidate>,
+    pub threshold_met: bool,
+}
+
+pub fn compare_probe_to_gallery(
+    probe: &RawFrame,
+    gallery: &[(String, RawFrame)],
+    threshold: f32,
+) -> GalleryMatchReport {
+    let probe_minutiae = extract_minutiae(probe).len();
+    let mut matches = Vec::with_capacity(gallery.len());
+
+    for (path, ref_frame) in gallery {
+        let report = compare_frames(probe, ref_frame);
+        let matched = report.score >= threshold;
+        matches.push(GalleryMatchCandidate {
+            reference_path: path.clone(),
+            score: report.score,
+            matched,
+            report,
+        });
+    }
+
+    matches.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let best_match = matches.first().cloned();
+    let threshold_met = best_match.as_ref().map(|b| b.matched).unwrap_or(false);
+
+    GalleryMatchReport {
+        probe_minutiae,
+        total_candidates: gallery.len(),
+        matches,
+        best_match,
+        threshold_met,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,12 +168,7 @@ mod tests {
         assert_eq!(report.score, 0.0);
         assert_eq!(report.probe_minutiae, 0);
         assert_eq!(report.reference_minutiae, 0);
-        assert!(
-            report
-                .warnings
-                .iter()
-                .any(|w| w.contains("few minutiae"))
-        );
+        assert!(report.warnings.iter().any(|w| w.contains("few minutiae")));
     }
 
     #[test]
@@ -141,5 +189,32 @@ mod tests {
         assert_eq!(report1.score, 100.0);
         assert_eq!(report2.score, 100.0);
         assert_eq!(report1.matched_minutiae, report1.probe_minutiae);
+    }
+
+    #[test]
+    fn test_matcher_gallery_ranking() {
+        let mut pixels = vec![0u8; FRAME_LEN];
+        for (i, p) in pixels.iter_mut().enumerate() {
+            let x = (i % WIDTH as usize) as f32;
+            let y = (i / WIDTH as usize) as f32;
+            let val = ((x / 10.0).sin() * (y / 10.0).cos() * 100.0 + 128.0) as u8;
+            *p = val;
+        }
+        let probe = RawFrame::new(pixels.clone()).unwrap();
+        let exact_match = RawFrame::new(pixels).unwrap();
+        let empty_frame = RawFrame::new(vec![128u8; FRAME_LEN]).unwrap();
+
+        let gallery = vec![
+            ("empty.png".to_string(), empty_frame),
+            ("exact.png".to_string(), exact_match),
+        ];
+
+        let report = compare_probe_to_gallery(&probe, &gallery, 40.0);
+        assert_eq!(report.total_candidates, 2);
+        assert!(report.threshold_met);
+        let best = report.best_match.expect("best candidate expected");
+        assert_eq!(best.reference_path, "exact.png");
+        assert_eq!(best.score, 100.0);
+        assert!(best.matched);
     }
 }

@@ -8,7 +8,8 @@ Technical Rust CLI for the Futronic FS80/FS80H fingerprint scanner, designed for
 ## Features
 
 - **USB Scanner Discovery**: Automatic detection of Futronic FS80, FS80H, and FS81H devices.
-- **Optical Frame Capture**: 320×480 resolution, 8-bit grayscale (L8) @ 500 DPI.
+- **Optical Frame Capture with Presence Detection (`capture`)**: 320×480 resolution, 8-bit grayscale (L8) @ 500 DPI with optional `--wait` auto-trigger and quality threshold gating.
+- **Multi-Sample Assisted Enrollment (`enroll`)**: Guided best-of-N frame acquisition electing the highest quality sample automatically.
 - **Forensic & Biometric Image Formats**:
   - **PNG**: 8-bit grayscale with `pHYs` chunk calibrated to 500 DPI (19,685 px/m).
   - **TIFF Baseline 6.0**: 500 DPI with full forensic EXIF tags (`ResolutionUnit=Inch`, `XResolution=500`, `YResolution=500`, `Software`, `Make="Futronic"`, `Model="FS80H"`).
@@ -18,7 +19,7 @@ Technical Rust CLI for the Futronic FS80/FS80H fingerprint scanner, designed for
 - **Technical Image Inspection (`inspect`)**: Inspect detected format, dimensions, SHA-256 buffer hash, local quality metrics, and custody history.
 - **Immutable Chain of Custody**: SHA-256 computed on the raw optical sensor buffer and preserved in an adjacent `.meta.json` manifest.
 - **Native Quality Assessment**: Mean local variance across 16×16 blocks and sensor saturation ratio analysis.
-- **Polymorphic 1:1 Verification (`verify`)**: Deterministic spatial minutiae comparison accepting any format combination (e.g., comparing TIFF directly against PNG or PGM).
+- **Biometric Verification (`verify`)**: Deterministic spatial minutiae comparison supporting 1:1 pairwise matching and 1:N gallery identification against directories.
 - **Environment Diagnostics (`doctor`)**: Verifies USB subsystem, scanner permissions, and filesystem write access.
 - **100% Pure Rust Ecosystem**: Zero C bridges, vendored ABI bundles, or dynamic library dependencies (`libtiff`/`libpng`).
 
@@ -92,8 +93,11 @@ cargo run -p fs80h-cli -- device inspect --bus 1 --address 1
 Acquire a fingerprint directly into your desired format:
 
 ```sh
-# Standard AFIS PNG (dark ridges on light background)
+# Standard AFIS PNG (immediate capture)
 cargo run -p fs80h-cli -- capture --output capture.png
+
+# Smart Auto-Trigger: waits for finger presence and contact stabilization
+cargo run -p fs80h-cli -- capture --wait --timeout 15 --min-quality 60 --output capture.png
 
 # Direct forensic TIFF (500 DPI)
 cargo run -p fs80h-cli -- capture --format tiff --output forensic.tiff
@@ -109,6 +113,23 @@ Every capture generates the image file and its associated custody manifest:
 ```text
 forensic.tiff
 forensic.tiff.meta.json
+```
+
+---
+
+### Multi-Sample Enrollment (`enroll`)
+
+Acquire multiple samples sequentially, evaluate each frame's quality, and elect the best-quality sample:
+
+```sh
+# Enroll with 3 samples (default: 3 samples, elects highest quality)
+cargo run -p fs80h-cli -- enroll --output master.png
+
+# Enroll with 5 samples in forensic TIFF format with custom quality threshold
+cargo run -p fs80h-cli -- enroll --samples 5 --timeout 20 --min-quality 65 --format tiff --output master.tiff
+
+# Output structured enrollment JSON
+cargo run -p fs80h-cli -- --json enroll --samples 3 --output master.png
 ```
 
 ---
@@ -141,16 +162,19 @@ cargo run -p fs80h-cli -- --json inspect digital.pgm
 
 ---
 
-### 1:1 Verification (`verify`)
+### Biometric Verification (`verify`)
 
-Compare two fingerprint images, even across different file formats:
+Compare fingerprint images across different formats:
 
 ```sh
-# Compare TIFF vs PNG
+# 1:1 Pairwise Verification (TIFF vs PNG)
 cargo run -p fs80h-cli -- verify forensic.tiff capture.png --threshold 40
 
-# Structured JSON output
-cargo run -p fs80h-cli -- --json verify forensic.tiff capture.png
+# 1:N Gallery Identification against a directory of enrolled prints
+cargo run -p fs80h-cli -- verify probe.png --gallery ./enrolled_users/ --threshold 40
+
+# Structured JSON output (for pipelines)
+cargo run -p fs80h-cli -- --json verify probe.png --gallery ./enrolled_users/
 
 # Fail with non-zero exit code (1) if threshold is not met
 cargo run -p fs80h-cli -- verify forensic.tiff capture.png --threshold 40 --exit-code

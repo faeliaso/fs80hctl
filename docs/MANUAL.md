@@ -13,10 +13,11 @@
    - [doctor (Environment Diagnostics)](#doctor)
    - [devices (Device Discovery)](#devices)
    - [device inspect (Scanner Inspection)](#device-inspect)
-   - [capture (Biometric Acquisition)](#capture)
+   - [capture (Biometric Acquisition & Auto-Trigger)](#capture)
+   - [enroll (Multi-Sample Enrollment)](#enroll)
    - [convert (Forensic Transcoding)](#convert)
    - [inspect (Image & Custody Inspection)](#inspect)
-   - [verify (1:1 Biometric Comparison)](#verify)
+   - [verify (1:1 and 1:N Biometric Comparison)](#verify)
    - [manual (Built-in Manual)](#manual)
 5. [Supported Formats](#supported-formats)
 6. [Chain of Custody & Manifests](#chain-of-custody--manifests)
@@ -113,8 +114,11 @@ fs80hctl device inspect --bus 1 --address 4
 Acquires an optical biometric frame from the scanner (320×480 resolution, 8-bit grayscale L8, calibrated to 500 DPI). Writes the image file and an adjacent chain-of-custody manifest (`.meta.json`).
 
 ```bash
-# Capture standard AFIS PNG (500 DPI pHYs chunk)
+# Capture standard AFIS PNG (500 DPI pHYs chunk, immediate capture)
 fs80hctl capture --output digital.png
+
+# Smart Auto-Trigger: waits for finger presence and contact stabilization
+fs80hctl capture --wait --timeout 15 --min-quality 60 --output digital.png
 
 # Direct forensic TIFF Baseline 6.0 with full EXIF tags
 fs80hctl capture --format tiff --output forensic.tiff
@@ -127,6 +131,22 @@ fs80hctl capture --raw --output sensor_raw.png
 
 # Custom direct variable-dose optical acquisition
 fs80hctl capture --variable-dose --dose 180 --output dose.png
+```
+
+---
+
+### `enroll`
+Acquires multiple biometric samples consecutively, evaluates their local variance and quality scores, and automatically selects and persists the highest-quality frame (best-of-N).
+
+```bash
+# Enroll with 3 samples (default) and save the best sample
+fs80hctl enroll --output master.png
+
+# Custom sample count, timeout, and format
+fs80hctl enroll --samples 5 --timeout 20 --min-quality 65 --format tiff --output master.tiff
+
+# Structured JSON output for integration into enrollment pipelines
+fs80hctl --json enroll --samples 3 --output master.png
 ```
 
 ---
@@ -165,20 +185,26 @@ fs80hctl --json inspect forensic.tiff
 ---
 
 ### `verify`
-Performs deterministic 1:1 spatial comparison between two biometric images, across any combination of supported formats (e.g., comparing TIFF directly against PNG).
+Performs deterministic spatial comparison between biometric images across any combination of supported formats (e.g., comparing TIFF directly against PNG). Supports both **1:1 pairwise matching** and **1:N gallery identification**.
 
 ```bash
-# Standard comparison with default threshold (40.0)
+# 1:1 Comparison with default threshold (40.0)
 fs80hctl verify digital.png reference.tiff
 
-# Custom threshold
+# 1:1 Custom threshold
 fs80hctl verify digital.png reference.tiff --threshold 45.0
 
-# Exit with code 1 if threshold is not met
+# 1:1 Exit with code 1 if threshold is not met
 fs80hctl verify digital.png reference.tiff --threshold 50.0 --exit-code
 
-# Structured JSON output
+# 1:1 Structured JSON output
 fs80hctl --json verify digital.png reference.tiff
+
+# 1:N Gallery Identification against a folder of candidate prints
+fs80hctl verify probe.png --gallery ./candidates/ --threshold 40.0
+
+# 1:N Gallery Verification with JSON output
+fs80hctl --json verify probe.png --gallery ./candidates/
 ```
 
 ---

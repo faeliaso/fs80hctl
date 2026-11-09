@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use fs80h_core::{
     CaptureManifest, DPI, DerivedManifest, FRAME_LEN, FingerprintScanner, HEIGHT, ImageFormat,
-    Manifest, RawFrame, WIDTH, compare_frames, evaluate_quality,
+    Manifest, RawFrame, WIDTH, compare_frames, compare_probe_to_gallery, evaluate_quality,
 };
 use fs80h_driver::{FutronicScanner, list_devices};
 use serde::Serialize;
@@ -13,7 +13,7 @@ use std::path::PathBuf;
     name = "fs80hctl",
     version,
     about = "Technical control tool for Futronic FS80/FS80H fingerprint scanners",
-    long_about = "Technical control CLI for Futronic FS80/FS80H optical fingerprint scanners, supporting frame acquisition, SHA-256 chain of custody, forensic transcoding (PNG, TIFF 500 DPI, NIST PGM, RAW), image inspection, and 1:1 biometric verification."
+    long_about = "Technical control CLI for Futronic FS80/FS80H optical fingerprint scanners, supporting frame acquisition, presence detection, multi-sample enrollment, SHA-256 chain of custody, forensic transcoding (PNG, TIFF 500 DPI, NIST PGM, RAW), image inspection, and 1:1/1:N biometric verification."
 )]
 struct Cli {
     /// Output results in structured JSON format
@@ -34,11 +34,13 @@ enum Command {
     },
     /// Capture an optical biometric frame from the scanner
     Capture(CaptureArgs),
+    /// Acquire multiple samples and elect the highest quality frame (best-of-N)
+    Enroll(EnrollArgs),
     /// Transcode biometric images across forensic formats (PNG, TIFF, PGM, RAW)
     Convert(ConvertArgs),
     /// Inspect image dimensions, DPI, SHA-256 integrity, quality metrics, and custody manifest
     Inspect(InspectArgs),
-    /// Compare two biometric images (1:1) and compute technical similarity score
+    /// Compare biometric images (1:1 with reference file or 1:N with --gallery directory)
     Verify(VerifyArgs),
     /// Run environment diagnostics (USB subsystem, device permissions, filesystem write)
     Doctor,
@@ -75,6 +77,45 @@ struct CaptureArgs {
     /// Save raw optical sensor frame without ridge inversion (light ridges on dark background)
     #[arg(long)]
     raw: bool,
+    /// Wait for finger presence and contact stabilization before acquiring
+    #[arg(long)]
+    wait: bool,
+    /// Timeout in seconds when waiting for finger presence (default: 10)
+    #[arg(long, default_value_t = 10)]
+    timeout: u64,
+    /// Minimum quality score threshold to trigger capture when waiting (0 to 100, default: 50)
+    #[arg(long, default_value_t = 50)]
+    min_quality: u8,
+    /// Use direct variable-dose acquisition path instead of default frame mode
+    #[arg(long)]
+    variable_dose: bool,
+    /// Exposure dose used with --variable-dose (default: 166)
+    #[arg(long, default_value_t = 166)]
+    dose: u8,
+}
+
+#[derive(Args)]
+struct EnrollArgs {
+    #[command(flatten)]
+    selection: Selection,
+    /// Output file path (default: enroll.png)
+    #[arg(short, long, default_value = "enroll.png")]
+    output: PathBuf,
+    /// Image format (png, tiff, pgm, raw). Inferred from output extension if omitted.
+    #[arg(long)]
+    format: Option<ImageFormat>,
+    /// Number of biometric samples to acquire and evaluate (default: 3)
+    #[arg(long, default_value_t = 3)]
+    samples: usize,
+    /// Timeout in seconds per sample when waiting for finger (default: 10)
+    #[arg(long, default_value_t = 10)]
+    timeout: u64,
+    /// Minimum quality score threshold per sample (0 to 100, default: 50)
+    #[arg(long, default_value_t = 50)]
+    min_quality: u8,
+    /// Save raw optical sensor frame without ridge inversion (light ridges on dark background)
+    #[arg(long)]
+    raw: bool,
     /// Use direct variable-dose acquisition path instead of default frame mode
     #[arg(long)]
     variable_dose: bool,
@@ -108,8 +149,11 @@ struct InspectArgs {
 struct VerifyArgs {
     /// Probe / sample image file (PNG, TIFF, PGM, RAW)
     probe: PathBuf,
-    /// Reference / template image file (PNG, TIFF, PGM, RAW)
-    reference: PathBuf,
+    /// Reference / template image file for 1:1 verification
+    reference: Option<PathBuf>,
+    /// Directory containing gallery of reference images for 1:N comparison
+    #[arg(long)]
+    gallery: Option<PathBuf>,
     /// Minimum similarity threshold for verification (0 to 100)
     #[arg(long, default_value_t = 40.0)]
     threshold: f32,
@@ -310,7 +354,40 @@ fn main() -> Result<()> {
         }
         Command::Capture(args) => {
             let mut scanner = selected(&args.selection)?;
-            let raw_frame = if args.variable_dose {
+            let raw_frame = if args.wait {
+                let dose_opt = if args.variable_dose {
+                    Some(args.dose)
+                } else {
+                    None
+                };
+                if !cli.json {
+                    println!(
+                        "Waiting for finger on scanner (timeout: {}s, min quality: {})...",
+                        args.timeout, args.min_quality
+                    );
+                }
+                let frame = scanner.wait_for_finger(
+                    std::time::Duration::from_secs(args.timeout),
+                    args.min_quality,
+                    dose_opt,
+                    |presence, elapsed| {
+                        if !cli.json && presence.is_present {
+                            use std::io::Write;
+                            print!(
+                                "\r[contact: {:.0}%, score: {}/100, elapsed: {:.1}s] Stabilizing...",
+                                presence.contact_ratio * 100.0,
+                                presence.quality.score,
+                                elapsed.as_secs_f32()
+                            );
+                            let _ = std::io::stdout().flush();
+                        }
+                    },
+                )?;
+                if !cli.json {
+                    println!();
+                }
+                frame
+            } else if args.variable_dose {
                 scanner.capture_with_dose(args.dose)?
             } else {
                 scanner.capture()?
@@ -390,6 +467,136 @@ fn main() -> Result<()> {
                 for w in &quality.warnings {
                     println!("  Quality warning: {w}");
                 }
+            }
+        }
+        Command::Enroll(args) => {
+            if args.samples == 0 {
+                anyhow::bail!("--samples must be greater than 0");
+            }
+            let mut scanner = selected(&args.selection)?;
+            let dose_opt = if args.variable_dose {
+                Some(args.dose)
+            } else {
+                None
+            };
+            let mut samples_data = Vec::with_capacity(args.samples);
+
+            if !cli.json {
+                println!(
+                    "Starting Enrollment: Acquiring {} biometric samples",
+                    args.samples
+                );
+                println!("==================================================");
+            }
+
+            for idx in 1..=args.samples {
+                if !cli.json {
+                    println!(
+                        "Sample {}/{}: Place finger firmly on scanner...",
+                        idx, args.samples
+                    );
+                }
+                let frame = scanner.wait_for_finger(
+                    std::time::Duration::from_secs(args.timeout),
+                    args.min_quality,
+                    dose_opt,
+                    |presence, elapsed| {
+                        if !cli.json && presence.is_present {
+                            use std::io::Write;
+                            print!(
+                                "\r  [contact: {:.0}%, score: {}/100, elapsed: {:.1}s] Acquiring...",
+                                presence.contact_ratio * 100.0,
+                                presence.quality.score,
+                                elapsed.as_secs_f32()
+                            );
+                            let _ = std::io::stdout().flush();
+                        }
+                    },
+                )?;
+                if !cli.json {
+                    println!();
+                }
+                let quality = evaluate_quality(&frame);
+                if !cli.json {
+                    println!(
+                        "  -> Sample {} captured: quality {}/100 (variance: {:.1}, saturation: {:.1}%)",
+                        idx,
+                        quality.score,
+                        quality.mean_local_variance,
+                        quality.saturated_ratio * 100.0
+                    );
+                }
+                samples_data.push((idx, frame, quality));
+
+                if idx < args.samples && !cli.json {
+                    println!("  Please lift your finger before the next take...");
+                    std::thread::sleep(std::time::Duration::from_millis(1200));
+                }
+            }
+
+            let (best_idx, best_frame, best_quality) = samples_data
+                .into_iter()
+                .max_by(|(_, _, q1), (_, _, q2)| {
+                    q1.score.cmp(&q2.score).then_with(|| {
+                        q1.mean_local_variance
+                            .partial_cmp(&q2.mean_local_variance)
+                            .unwrap()
+                    })
+                })
+                .context("no samples acquired")?;
+
+            let format = args
+                .format
+                .or_else(|| ImageFormat::from_path_extension(&args.output))
+                .unwrap_or(ImageFormat::Png);
+
+            let standard_afis = !args.raw;
+            let export_frame = if standard_afis {
+                best_frame.inverted()
+            } else {
+                best_frame.clone()
+            };
+
+            let manifest = CaptureManifest::for_frame_with_afis_and_format(
+                &best_frame,
+                best_quality.clone(),
+                env!("CARGO_PKG_VERSION"),
+                None,
+                scanner.device_info(),
+                standard_afis,
+                format,
+            );
+
+            export_frame.write_format(&args.output, format)?;
+            manifest.write_adjacent(&args.output)?;
+
+            let sha256_raw = best_frame.sha256();
+            let value = serde_json::json!({
+                "enrollment": {
+                    "total_samples": args.samples,
+                    "selected_sample": best_idx,
+                    "quality": best_quality,
+                    "sha256_raw_frame": sha256_raw,
+                    "file": args.output,
+                    "format": format.to_string(),
+                    "manifest": format!("{}.meta.json", args.output.display()),
+                    "standard_afis": standard_afis
+                }
+            });
+
+            if cli.json {
+                print(true, &value)?;
+            } else {
+                println!();
+                println!("Enrollment completed successfully!");
+                println!(
+                    "Selected best sample: #{} with quality {}/100",
+                    best_idx, best_quality.score
+                );
+                println!("Saved to: {}", args.output.display());
+                println!("Format: {}", format);
+                println!("Custody manifest: {}.meta.json", args.output.display());
+                println!("SHA-256 (raw frame): {}", sha256_raw);
             }
         }
         Command::Convert(args) => {
@@ -475,8 +682,8 @@ fn main() -> Result<()> {
             }
         }
         Command::Inspect(args) => {
-            let format = ImageFormat::detect(&args.image)
-                .context("failed to detect file format")?;
+            let format =
+                ImageFormat::detect(&args.image).context("failed to detect file format")?;
             let frame = RawFrame::from_file(&args.image).context("failed to read image data")?;
             let quality = evaluate_quality(&frame);
             let sha256 = frame.sha256();
@@ -546,33 +753,149 @@ fn main() -> Result<()> {
                 anyhow::bail!("--threshold must be between 0 and 100");
             }
             let probe = RawFrame::from_file(&args.probe).context("failed to load probe")?;
-            let reference =
-                RawFrame::from_file(&args.reference).context("failed to load reference")?;
-            let deterministic = compare_frames(&probe, &reference);
-            let out = VerifyOutput {
-                threshold: args.threshold,
-                threshold_met: deterministic.score >= args.threshold,
-                deterministic,
-                biometric_score: None,
-            };
-            if cli.json {
-                print(true, &out)?
-            } else {
-                println!(
-                    "Deterministic score: {:.1}/100 ({})",
-                    out.deterministic.score,
-                    if out.threshold_met {
-                        "meets threshold"
+
+            match (&args.reference, &args.gallery) {
+                (Some(ref_path), None) => {
+                    let reference =
+                        RawFrame::from_file(ref_path).context("failed to load reference")?;
+                    let deterministic = compare_frames(&probe, &reference);
+                    let out = VerifyOutput {
+                        threshold: args.threshold,
+                        threshold_met: deterministic.score >= args.threshold,
+                        deterministic,
+                        biometric_score: None,
+                    };
+                    if cli.json {
+                        print(true, &out)?
                     } else {
-                        "below threshold"
+                        println!(
+                            "Deterministic score: {:.1}/100 ({})",
+                            out.deterministic.score,
+                            if out.threshold_met {
+                                "meets threshold"
+                            } else {
+                                "below threshold"
+                            }
+                        );
+                        for w in &out.deterministic.warnings {
+                            println!("Warning: {w}")
+                        }
                     }
-                );
-                for w in &out.deterministic.warnings {
-                    println!("Warning: {w}")
+                    if args.exit_code && !out.threshold_met {
+                        std::process::exit(1);
+                    }
                 }
-            }
-            if args.exit_code && !out.threshold_met {
-                std::process::exit(1);
+                (None, Some(gallery_dir)) => {
+                    if !gallery_dir.is_dir() {
+                        anyhow::bail!("gallery path is not a directory: {}", gallery_dir.display());
+                    }
+                    let mut candidates = Vec::new();
+                    let mut entries = std::fs::read_dir(gallery_dir)?
+                        .filter_map(|e| e.ok())
+                        .collect::<Vec<_>>();
+                    entries.sort_by_key(|e| e.path());
+
+                    for entry in entries {
+                        let path = entry.path();
+                        if path.is_file() {
+                            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                            if file_name.ends_with(".meta.json") {
+                                continue;
+                            }
+                            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                                match ext.to_ascii_lowercase().as_str() {
+                                    "png" | "tiff" | "tif" | "pgm" | "raw" | "dat" => {
+                                        if let Ok(frame) = RawFrame::from_file(&path) {
+                                            candidates.push((path.display().to_string(), frame));
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+
+                    if candidates.is_empty() {
+                        anyhow::bail!(
+                            "no valid biometric image files found in gallery directory: {}",
+                            gallery_dir.display()
+                        );
+                    }
+
+                    let report = compare_probe_to_gallery(&probe, &candidates, args.threshold);
+
+                    if cli.json {
+                        print(true, &report)?;
+                    } else {
+                        println!("1:N Gallery Verification Report");
+                        println!("===============================");
+                        println!("Probe image: {}", args.probe.display());
+                        println!(
+                            "Gallery directory: {} ({} candidates)",
+                            gallery_dir.display(),
+                            report.total_candidates
+                        );
+                        println!("Threshold: {:.1}%", args.threshold);
+                        println!();
+                        println!(
+                            "{:<4} | {:<32} | {:<7} | Status",
+                            "Rank", "Candidate File", "Score"
+                        );
+                        println!(
+                            "{:-<4}-+-{:-<32}-+-{:-<7}-+--------------------",
+                            "", "", ""
+                        );
+
+                        for (idx, c) in report.matches.iter().enumerate() {
+                            let status = if c.matched { "MATCH" } else { "NO MATCH" };
+                            let display_name = PathBuf::from(&c.reference_path)
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or(&c.reference_path)
+                                .to_string();
+                            let truncated = if display_name.len() > 32 {
+                                format!("{}...", &display_name[..29])
+                            } else {
+                                display_name
+                            };
+                            println!(
+                                "{:<4} | {:<32} | {:>5.1} | {}",
+                                idx + 1,
+                                truncated,
+                                c.score,
+                                status
+                            );
+                        }
+
+                        println!();
+                        if let Some(best) = &report.best_match {
+                            println!(
+                                "Best candidate: {} (score: {:.1}/100) -> {}",
+                                best.reference_path,
+                                best.score,
+                                if best.matched {
+                                    "VERIFIED (meets threshold)"
+                                } else {
+                                    "BELOW THRESHOLD"
+                                }
+                            );
+                        }
+                    }
+
+                    if args.exit_code && !report.threshold_met {
+                        std::process::exit(1);
+                    }
+                }
+                (Some(_), Some(_)) => {
+                    anyhow::bail!(
+                        "specify either <REFERENCE> for 1:1 or --gallery <DIR> for 1:N, not both"
+                    );
+                }
+                (None, None) => {
+                    anyhow::bail!(
+                        "specify a reference file for 1:1 verification or --gallery <DIR> for 1:N"
+                    );
+                }
             }
         }
         Command::Doctor => {
@@ -594,7 +917,9 @@ fn main() -> Result<()> {
                     if report.devices_found > 0 {
                         println!("Overall status: READY (scanner connected and operational)");
                     } else {
-                        println!("Overall status: OPERATIONAL (waiting for USB scanner connection)");
+                        println!(
+                            "Overall status: OPERATIONAL (waiting for USB scanner connection)"
+                        );
                     }
                 } else {
                     println!("Overall status: WARNING (operational issues detected)");
@@ -664,14 +989,33 @@ SUBCOMMANDS
             -o, --output <FILE>       Output path (default: capture.png)
             --format <FORMAT>         Image format: png, tiff, pgm, raw
             --raw                     Save raw optical sensor frame without ridge inversion
+            --wait                    Wait for finger presence and contact stabilization before acquiring
+            --timeout <SECS>          Timeout in seconds when waiting for finger presence (default: 10)
+            --min-quality <0-100>     Minimum quality score threshold to trigger capture (default: 50)
             --variable-dose           Direct variable-dose acquisition path
             --dose <VALUE>            Exposure dose (default: 166)
             --bus <N> / --address <N> Select specific USB device
         Examples:
             fs80hctl capture --output digital.png
+            fs80hctl capture --wait --timeout 15 --output digital.png
             fs80hctl capture --format tiff --output digital.tiff
             fs80hctl capture --format pgm --output nist.pgm
             fs80hctl capture --raw --output raw_sensor.png
+
+    enroll [OPTIONS]
+        Acquire multiple biometric samples consecutively, evaluate quality metrics, and
+        automatically elect and persist the highest quality frame (best-of-N).
+        Enroll options:
+            -o, --output <FILE>       Output path (default: enroll.png)
+            --format <FORMAT>         Image format: png, tiff, pgm, raw
+            --samples <N>             Number of samples to acquire and evaluate (default: 3)
+            --timeout <SECS>          Timeout in seconds per sample (default: 10)
+            --min-quality <0-100>     Minimum quality score threshold per sample (default: 50)
+            --raw                     Save raw optical sensor frame without ridge inversion
+            --bus <N> / --address <N> Select specific USB device
+        Examples:
+            fs80hctl enroll --output master.png
+            fs80hctl enroll --samples 3 --timeout 15 --format tiff --output master.tiff
 
     convert <INPUT> [OPTIONS]
         Transcode biometric images between formats, preserving root custody SHA-256 in the
@@ -692,16 +1036,23 @@ SUBCOMMANDS
             fs80hctl inspect capture.png
             fs80hctl --json inspect forensic.tiff
 
-    verify <PROBE> <REFERENCE> [OPTIONS]
-        Compare two biometric images (1:1) using deterministic spatial feature extraction
-        and alignment across any format combination.
+    verify <PROBE> [<REFERENCE>] [--gallery <DIR>] [OPTIONS]
+        Compare biometric images using deterministic spatial feature extraction and alignment.
+        Supports 1:1 comparison against a single reference file or 1:N comparison against a
+        directory containing a gallery of candidate images.
         Options:
+            --gallery <DIR>           Directory containing reference images for 1:N comparison
             --threshold <0-100>       Minimum verification score threshold (default: 40.0)
             --exit-code               Exit with code 1 if threshold is not met
         Examples:
+            # 1:1 Verification
             fs80hctl verify capture.png reference.tiff
             fs80hctl verify capture.png reference.tiff --threshold 45 --exit-code
             fs80hctl --json verify probe.pgm ref.png
+
+            # 1:N Gallery Verification
+            fs80hctl verify probe.png --gallery ./enrolled_users/
+            fs80hctl --json verify probe.png --gallery ./enrolled_users/ --threshold 50.0
 
     manual
         Display this technical reference manual on standard output.
