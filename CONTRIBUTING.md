@@ -1,40 +1,40 @@
-# Guia de Contribuição — fs80hctl
+# Contributing Guide — fs80hctl
 
-Obrigado pelo interesse em contribuir com o `fs80hctl`!
+Thank you for your interest in contributing to `fs80hctl`!
 
-## Regra Fundamental: Proibição de Biometria Real
+## Fundamental Rule: Prohibition of Real Biometrics
 
 > [!CAUTION]
-> **Nunca inclua impressões digitais reais em Pull Requests, Issues ou arquivos de teste.**
-> Todo teste automatizado deve utilizar imagens sintéticas geradas programaticamente ou os fixtures determinísticos já aprovados em `tests/fixtures/`.
+> **Never commit or submit real fingerprint biometric data in Pull Requests, Issues, or test files.**
+> All automated tests must use programmatically generated synthetic images or the deterministic fixtures approved in `tests/fixtures/`.
 
-Para gerar novos fixtures sintéticos, utilize as funções em `tests/fixture_support.rs`.
+To generate new synthetic fixtures, use the generator functions in `tests/fixture_support.rs`.
 
-## Ambiente de Desenvolvimento e Ferramentas
+## Development Environment & Tooling
 
-- **Rust**: Edição 2024 / Toolchain estável recente.
-- **Formatação e Linters**:
+- **Rust**: 2024 Edition / Latest stable toolchain.
+- **Formatting and Linters**:
   ```sh
   cargo fmt --all -- --check
   cargo clippy --workspace --all-targets -- -D warnings
   ```
-- **Testes sem hardware**:
+- **Hardware-Free Automated Tests**:
   ```sh
   cargo test --workspace
   ```
-- **Verificação anti-vazamento de dados sensíveis**:
+- **Workspace Cleanliness & Leak Prevention**:
   ```sh
   ./scripts/check-clean-workspace.sh
   ```
 
-## Estrutura do Workspace
+## Workspace Architecture
 
-- [`crates/fs80h-core`](crates/fs80h-core): Lógica pura de domínio, decodificação PNG, hash SHA-256 de custódia, métricas de qualidade e matcher determinístico 1:1. Zero dependência de hardware USB.
-- [`crates/fs80h-driver`](crates/fs80h-driver): Camada de integração com o driver `futronic-fs80h-rs`.
-- [`crates/fs80h-cli`](crates/fs80h-cli): Interface de linha de comando (`fs80hctl`).
+- [`crates/fs80h-core`](crates/fs80h-core): Pure domain logic, image codecs (PNG, TIFF, PGM, RAW), SHA-256 custody hashing, quality metrics, and deterministic 1:1 matcher. Zero dependency on USB hardware.
+- [`crates/fs80h-driver`](crates/fs80h-driver): Hardware integration layer wrapping `futronic-fs80h-rs`.
+- [`crates/fs80h-cli`](crates/fs80h-cli): Command-line interface (`fs80hctl`).
 
-## Padrões de Código
+## Code Standards
 
-- Mantenha a separação rígida de camadas: `fs80h-core` não deve depender de USB.
-- Toda nova funcionalidade deve acompanhar testes unitários ou de integração sintéticos.
-- Todo comando de saída estruturada deve suportar a flag global `--json`.
+- Maintain strict architectural separation: `fs80h-core` must never depend on USB or native hardware drivers.
+- Every new feature must include automated synthetic tests.
+- All CLI commands providing structured output must support the global `--json` flag.

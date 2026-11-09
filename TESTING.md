@@ -1,35 +1,38 @@
-# Testes
+# Testing Guide
 
-## Sem hardware
+## Hardware-Free Testing
+
+All automated tests in the workspace use synthetic deterministic fixtures and do not require any connected USB hardware:
 
 ```sh
 cargo check --workspace
 cargo test --workspace
 ```
 
-## Leitor físico
+## Physical Scanner Testing
 
-Instale `libusb-1.0` e `pkg-config`; no Linux, dê à sua conta acesso ao USB
-do dispositivo Futronic (VID `1491`). Conecte o leitor e execute:
+To test with physical Futronic hardware:
+- Ensure `libusb-1.0` and `pkg-config` are installed.
+- On Linux, configure udev rules or grant user permissions to access Futronic USB devices (Vendor ID `0x1491`).
+- Connect the scanner and run:
 
 ```sh
 ./scripts/test-physical.sh
 ```
 
-Com múltiplos leitores, obtenha o barramento e endereço com `devices` e rode:
+When multiple scanners are connected, specify the desired USB bus and address (found using `cargo run -p fs80h-cli -- devices`):
 
 ```sh
 FS80H_BUS=1 FS80H_ADDRESS=4 ./scripts/test-physical.sh
 ```
 
-Se a captura em frame mode expirar, teste o caminho direto de dose variável:
+If frame-mode capture times out on your USB host controller, test the variable-dose direct path:
 
 ```sh
 FS80H_VARIABLE_DOSE=1 ./scripts/test-physical.sh
 ```
 
-O script produz a captura e manifesto em uma pasta temporária `fs80h-physical.*`
-dentro de `~/Downloads`, faz uma auto-verificação local da imagem e informa o
-diretório ao final. Para escolher outro local, defina `FS80H_OUTPUT_DIR`.
-Dados
-biométricos são sensíveis: revise e descarte esse diretório depois do teste.
+The script outputs the captured image and manifest into a temporary directory `fs80h-physical.*` located in `~/Downloads`, performs an automated local 1:1 verification, and reports the directory path. To choose a custom directory, set `FS80H_OUTPUT_DIR`.
+
+> [!CAUTION]
+> Biometric data is sensitive. Always review, protect, and safely delete this test directory after completing your verification.

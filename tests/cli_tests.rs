@@ -152,3 +152,99 @@ fn test_cli_device_inspect_mismatched_bus_address() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("--bus e --address devem ser usados juntos"));
 }
+
+#[test]
+fn test_cli_convert_and_inspect() {
+    let tmp_dir = std::env::temp_dir().join(format!("fs80h-cli-test-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp_dir);
+
+    let tiff_out = tmp_dir.join("probe.tiff");
+    let pgm_out = tmp_dir.join("probe.pgm");
+    let raw_out = tmp_dir.join("probe.raw");
+
+    // 1. Convert PNG -> TIFF
+    let out = bin()
+        .args([
+            "convert",
+            fixture("probe.png").to_str().unwrap(),
+            "--to",
+            "tiff",
+            "--output",
+            tiff_out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to execute convert to tiff");
+    assert!(out.status.success());
+    assert!(tiff_out.exists());
+    assert!(tmp_dir.join("probe.tiff.meta.json").exists());
+
+    // 2. Convert TIFF -> PGM
+    let out = bin()
+        .args([
+            "convert",
+            tiff_out.to_str().unwrap(),
+            "--to",
+            "pgm",
+            "--output",
+            pgm_out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to execute convert to pgm");
+    assert!(out.status.success());
+    assert!(pgm_out.exists());
+
+    // 3. Convert PGM -> RAW
+    let out = bin()
+        .args([
+            "convert",
+            pgm_out.to_str().unwrap(),
+            "--to",
+            "raw",
+            "--output",
+            raw_out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to execute convert to raw");
+    assert!(out.status.success());
+    assert!(raw_out.exists());
+    assert_eq!(std::fs::metadata(&raw_out).unwrap().len(), 153600);
+
+    // 4. Inspect TIFF text
+    let out = bin()
+        .args(["inspect", tiff_out.to_str().unwrap()])
+        .output()
+        .expect("failed to inspect tiff");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("Formato detectado: tiff"));
+    assert!(stdout.contains("320x480"));
+
+    // 5. Inspect PGM JSON
+    let out = bin()
+        .args(["--json", "inspect", pgm_out.to_str().unwrap()])
+        .output()
+        .expect("failed to inspect pgm json");
+    assert!(out.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid json");
+    assert_eq!(parsed["format"], "pgm");
+    assert_eq!(parsed["dimensions"]["width"], 320);
+    assert_eq!(parsed["dimensions"]["height"], 480);
+    assert_eq!(parsed["dimensions"]["bytes"], 153600);
+
+    // 6. Cross-format verify: TIFF probe vs PNG reference
+    let out = bin()
+        .args([
+            "verify",
+            tiff_out.to_str().unwrap(),
+            fixture("reference_match.png").to_str().unwrap(),
+            "--threshold",
+            "40",
+        ])
+        .output()
+        .expect("failed to cross verify");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("atinge limiar"));
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}

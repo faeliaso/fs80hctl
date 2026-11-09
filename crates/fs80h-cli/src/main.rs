@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
-use fs80h_core::{CaptureManifest, FingerprintScanner, RawFrame, compare_frames, evaluate_quality};
+use fs80h_core::{
+    CaptureManifest, DPI, DerivedManifest, FRAME_LEN, FingerprintScanner, HEIGHT, ImageFormat,
+    Manifest, RawFrame, WIDTH, compare_frames, evaluate_quality,
+};
 use fs80h_driver::{FutronicScanner, list_devices};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -16,6 +19,7 @@ struct Cli {
     #[command(subcommand)]
     command: Command,
 }
+
 #[derive(Subcommand)]
 enum Command {
     Devices,
@@ -24,13 +28,17 @@ enum Command {
         command: DeviceCommand,
     },
     Capture(CaptureArgs),
+    Convert(ConvertArgs),
+    Inspect(InspectArgs),
     Verify(VerifyArgs),
     Doctor,
 }
+
 #[derive(Subcommand)]
 enum DeviceCommand {
     Inspect(Selection),
 }
+
 #[derive(Args, Clone)]
 struct Selection {
     #[arg(long)]
@@ -38,12 +46,16 @@ struct Selection {
     #[arg(long)]
     address: Option<u8>,
 }
+
 #[derive(Args)]
 struct CaptureArgs {
     #[command(flatten)]
     selection: Selection,
     #[arg(short, long, default_value = "capture.png")]
     output: PathBuf,
+    /// Formato de imagem (png, tiff, pgm, raw). Se omitido, deduz da extensão de --output.
+    #[arg(long)]
+    format: Option<ImageFormat>,
     /// Salva o frame óptico bruto do sensor sem inversão (cristas claras em fundo escuro)
     #[arg(long)]
     raw: bool,
@@ -54,6 +66,28 @@ struct CaptureArgs {
     #[arg(long, default_value_t = 166)]
     dose: u8,
 }
+
+#[derive(Args)]
+struct ConvertArgs {
+    /// Arquivo de imagem de entrada (PNG, TIFF, PGM, RAW)
+    input: PathBuf,
+    /// Formato de destino (png, tiff, pgm, raw). Se omitido, deduz da extensão de --output.
+    #[arg(short = 't', long)]
+    to: Option<ImageFormat>,
+    /// Caminho do arquivo de saída
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+    /// Inverte a polaridade dos pixels (255 - pixel)
+    #[arg(long)]
+    invert: bool,
+}
+
+#[derive(Args)]
+struct InspectArgs {
+    /// Arquivo de imagem a ser inspecionado (PNG, TIFF, PGM, RAW)
+    image: PathBuf,
+}
+
 #[derive(Args)]
 struct VerifyArgs {
     probe: PathBuf,
@@ -64,6 +98,7 @@ struct VerifyArgs {
     #[arg(long)]
     exit_code: bool,
 }
+
 #[derive(Serialize)]
 struct VerifyOutput {
     deterministic: fs80h_core::MatchReport,
@@ -217,12 +252,14 @@ fn selected(sel: &Selection) -> Result<FutronicScanner> {
         _ => anyhow::bail!("--bus e --address devem ser usados juntos"),
     }
 }
+
 fn print<T: Serialize>(json: bool, value: &T) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(value)?);
     }
     Ok(())
 }
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
@@ -262,6 +299,11 @@ fn main() -> Result<()> {
             let quality = evaluate_quality(&raw_frame);
             let sha256_raw = raw_frame.sha256();
 
+            let format = args
+                .format
+                .or_else(|| ImageFormat::from_path_extension(&args.output))
+                .unwrap_or(ImageFormat::Png);
+
             // Padrão AFIS da indústria biométrica (cristas escuras sobre fundo claro).
             // Se --raw for fornecido, exporta o sinal óptico bruto do sensor sem inversão.
             let standard_afis = !args.raw;
@@ -271,28 +313,34 @@ fn main() -> Result<()> {
                 raw_frame.clone()
             };
 
-            let manifest = CaptureManifest::for_frame_with_afis(
+            let manifest = CaptureManifest::for_frame_with_afis_and_format(
                 &raw_frame,
                 quality.clone(),
                 env!("CARGO_PKG_VERSION"),
                 None,
                 scanner.device_info(),
                 standard_afis,
+                format,
             );
+
             // Custódia: sha256_raw_frame no manifesto registra o hash do frame bruto do sensor.
-            export_frame.write_png(&args.output)?;
+            export_frame.write_format(&args.output, format)?;
             manifest.write_adjacent(&args.output)?;
+
             let value = serde_json::json!({
-                "png": args.output,
+                "file": args.output,
+                "format": format.to_string(),
                 "manifest": format!("{}.meta.json", args.output.display()),
                 "sha256_raw_frame": sha256_raw,
                 "standard_afis": standard_afis,
                 "quality": quality
             });
+
             if cli.json {
                 print(true, &value)?
             } else {
                 println!("Captura gravada com sucesso em {}", args.output.display());
+                println!("Formato de arquivo: {}", format);
                 println!(
                     "Padrão visual: {}",
                     if standard_afis {
@@ -325,13 +373,165 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::Convert(args) => {
+            let input_frame =
+                RawFrame::from_file(&args.input).context("falha ao carregar imagem de entrada")?;
+
+            let target_format = match (args.to, &args.output) {
+                (Some(fmt), _) => fmt,
+                (None, Some(out)) => ImageFormat::from_path_extension(out).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "não foi possível deduzir formato a partir de {}",
+                        out.display()
+                    )
+                })?,
+                (None, None) => {
+                    anyhow::bail!("especifique --to <formato> ou --output <arquivo.ext>")
+                }
+            };
+
+            let output_path = match args.output {
+                Some(out) => out,
+                None => {
+                    let mut out = args.input.clone();
+                    out.set_extension(target_format.to_string());
+                    out
+                }
+            };
+
+            let converted_frame = if args.invert {
+                input_frame.inverted()
+            } else {
+                input_frame.clone()
+            };
+
+            converted_frame.write_format(&output_path, target_format)?;
+
+            // Preservação do manifesto de custódia
+            let sha256_original_raw =
+                if let Ok(parent_manifest) = Manifest::read_adjacent(&args.input) {
+                    parent_manifest.sha256_raw_frame().to_string()
+                } else {
+                    input_frame.sha256()
+                };
+
+            let mut transformations = Vec::new();
+            if args.invert {
+                transformations.push("invert_polarity".to_string());
+            }
+
+            let derived = DerivedManifest {
+                schema_version: 1,
+                sha256_derived_artifact: converted_frame.sha256(),
+                sha256_raw_frame: sha256_original_raw.clone(),
+                format: target_format.to_string(),
+                transformations,
+            };
+            derived.write_adjacent(&output_path)?;
+
+            let value = serde_json::json!({
+                "input": args.input,
+                "output": output_path,
+                "format": target_format.to_string(),
+                "sha256_raw_frame": sha256_original_raw,
+                "sha256_converted": converted_frame.sha256(),
+                "manifest": format!("{}.meta.json", output_path.display())
+            });
+
+            if cli.json {
+                print(true, &value)?;
+            } else {
+                println!(
+                    "Conversão concluída com sucesso: {} -> {}",
+                    args.input.display(),
+                    output_path.display()
+                );
+                println!("Formato de saída: {}", target_format);
+                println!("SHA-256 da imagem gerada: {}", converted_frame.sha256());
+                println!(
+                    "SHA-256 de custódia (frame original): {}",
+                    sha256_original_raw
+                );
+                println!(
+                    "Manifesto derivado gerado: {}.meta.json",
+                    output_path.display()
+                );
+            }
+        }
+        Command::Inspect(args) => {
+            let format = ImageFormat::detect(&args.image)
+                .context("falha ao identificar formato do arquivo")?;
+            let frame = RawFrame::from_file(&args.image).context("falha ao ler dados da imagem")?;
+            let quality = evaluate_quality(&frame);
+            let sha256 = frame.sha256();
+
+            let manifest = Manifest::read_adjacent(&args.image).ok();
+
+            let value = serde_json::json!({
+                "file": args.image,
+                "format": format.to_string(),
+                "dimensions": {
+                    "width": WIDTH,
+                    "height": HEIGHT,
+                    "dpi": DPI,
+                    "bytes": FRAME_LEN
+                },
+                "sha256": sha256,
+                "quality": quality,
+                "manifest_present": manifest.is_some(),
+                "manifest": manifest
+            });
+
+            if cli.json {
+                print(true, &value)?;
+            } else {
+                println!("Inspeção Técnica de Imagem Forense");
+                println!("===================================");
+                println!("Arquivo: {}", args.image.display());
+                println!("Formato detectado: {}", format);
+                println!(
+                    "Resolução: {}x{} pixels @ {} DPI ({} bytes)",
+                    WIDTH, HEIGHT, DPI, FRAME_LEN
+                );
+                println!("SHA-256 do buffer: {}", sha256);
+                println!(
+                    "Qualidade do frame: {}/100 ({})",
+                    quality.score,
+                    if quality.accepted {
+                        "aceita"
+                    } else {
+                        "baixa qualidade"
+                    }
+                );
+                println!("  - Variância local: {:.1}", quality.mean_local_variance);
+                println!("  - Saturação: {:.1}%", quality.saturated_ratio * 100.0);
+                if let Some(m) = &manifest {
+                    println!("Manifesto de custódia: Presente");
+                    println!("  - SHA-256 original (custódia): {}", m.sha256_raw_frame());
+                    match m {
+                        Manifest::Capture(c) => {
+                            println!("  - Tipo: Captura direta (hardware)");
+                            println!("  - Data UTC: {}", c.captured_at_utc);
+                        }
+                        Manifest::Derived(d) => {
+                            println!("  - Tipo: Derivado / Transcodificado");
+                            if !d.transformations.is_empty() {
+                                println!("  - Transformações: {}", d.transformations.join(", "));
+                            }
+                        }
+                    }
+                } else {
+                    println!("Manifesto de custódia: Ausente (.meta.json não encontrado)");
+                }
+            }
+        }
         Command::Verify(args) => {
             if !args.threshold.is_finite() || !(0.0..=100.0).contains(&args.threshold) {
                 anyhow::bail!("--threshold deve estar entre 0 e 100");
             }
-            let probe = RawFrame::from_png(&args.probe).context("probe PNG inválido")?;
+            let probe = RawFrame::from_file(&args.probe).context("falha ao carregar probe")?;
             let reference =
-                RawFrame::from_png(&args.reference).context("reference PNG inválido")?;
+                RawFrame::from_file(&args.reference).context("falha ao carregar reference")?;
             let deterministic = compare_frames(&probe, &reference);
             let out = VerifyOutput {
                 threshold: args.threshold,

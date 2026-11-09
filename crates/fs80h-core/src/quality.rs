@@ -1,7 +1,7 @@
 use crate::domain::{HEIGHT, RawFrame, WIDTH};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct QualityReport {
     pub score: u8,
     pub accepted: bool,

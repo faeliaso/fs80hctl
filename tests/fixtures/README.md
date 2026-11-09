@@ -1,3 +1,3 @@
-# Fixtures sintéticas
+# Synthetic Fixtures
 
-`verify_pipeline.rs` gera quatro PNGs L8 320×480 determinísticos em diretório temporário: probe, match com deslocamento, mismatch perpendicular e imagem ruidosa. Eles não representam impressões digitais de pessoas e permitem executar a suíte sem hardware.
+`verify_pipeline.rs` generates four deterministic 320×480 L8 PNG images in a temporary directory: probe, shifted match, perpendicular mismatch, and noisy degraded frame. They do not represent human biometrics and allow executing the entire test suite without physical hardware.
