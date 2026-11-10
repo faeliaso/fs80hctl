@@ -113,6 +113,14 @@ pub enum CoreError {
     Tiff(#[from] tiff::TiffError),
     #[error("unsupported or unknown image format: {0}")]
     UnsupportedFormat(String),
+    #[error("invalid quality score: {0} (must be 0..=100)")]
+    InvalidQualityScore(u8),
+    #[error("invalid match score: {0} (must be 0.0..=100.0)")]
+    InvalidMatchScore(f32),
+    #[error("image dimension calculation overflow")]
+    DimensionOverflow,
+    #[error("buffer size mismatch: expected {expected} bytes, got {actual}")]
+    BufferSizeMismatch { expected: usize, actual: usize },
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
@@ -123,9 +131,213 @@ pub enum CoreError {
     Json(#[from] serde_json::Error),
 }
 
+/// Biometric quality score normalized between 0 and 100.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct QualityScore(u8);
+
+impl QualityScore {
+    /// Constructs a validated quality score.
+    pub fn new(score: u8) -> Result<Self, CoreError> {
+        if score <= 100 {
+            Ok(Self(score))
+        } else {
+            Err(CoreError::InvalidQualityScore(score))
+        }
+    }
+
+    /// Access primitive integer score.
+    pub const fn as_u8(self) -> u8 {
+        self.0
+    }
+}
+
+impl std::ops::Deref for QualityScore {
+    type Target = u8;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for QualityScore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<QualityScore> for u8 {
+    fn from(q: QualityScore) -> Self {
+        q.0
+    }
+}
+
+impl PartialEq<u8> for QualityScore {
+    fn eq(&self, other: &u8) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<QualityScore> for u8 {
+    fn eq(&self, other: &QualityScore) -> bool {
+        *self == other.0
+    }
+}
+
+impl PartialOrd<u8> for QualityScore {
+    fn partial_cmp(&self, other: &u8) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other)
+    }
+}
+
+impl PartialOrd<QualityScore> for u8 {
+    fn partial_cmp(&self, other: &QualityScore) -> Option<std::cmp::Ordering> {
+        self.partial_cmp(&other.0)
+    }
+}
+
+/// Biometric match similarity score normalized between 0.0 and 100.0.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct MatchScore(f32);
+
+impl MatchScore {
+    /// Constructs a validated match score.
+    pub fn new(score: f32) -> Result<Self, CoreError> {
+        if (0.0..=100.0).contains(&score) {
+            Ok(Self(score))
+        } else {
+            Err(CoreError::InvalidMatchScore(score))
+        }
+    }
+
+    /// Access primitive float score.
+    pub const fn as_f32(self) -> f32 {
+        self.0
+    }
+}
+
+impl std::ops::Deref for MatchScore {
+    type Target = f32;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for MatchScore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.1}", self.0)
+    }
+}
+
+impl From<MatchScore> for f32 {
+    fn from(m: MatchScore) -> Self {
+        m.0
+    }
+}
+
+impl PartialEq<f32> for MatchScore {
+    fn eq(&self, other: &f32) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<MatchScore> for f32 {
+    fn eq(&self, other: &MatchScore) -> bool {
+        *self == other.0
+    }
+}
+
+impl PartialOrd<f32> for MatchScore {
+    fn partial_cmp(&self, other: &f32) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other)
+    }
+}
+
+impl PartialOrd<MatchScore> for f32 {
+    fn partial_cmp(&self, other: &MatchScore) -> Option<std::cmp::Ordering> {
+        self.partial_cmp(&other.0)
+    }
+}
+
+/// Optical scanning resolution in dots per inch (e.g. 500 DPI for FS80H).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Dpi(u32);
+
+impl Dpi {
+    pub const fn new(dpi: u32) -> Self {
+        Self(dpi)
+    }
+
+    pub const fn as_u32(self) -> u32 {
+        self.0
+    }
+}
+
+impl std::ops::Deref for Dpi {
+    type Target = u32;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Dpi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Contiguous 8-bit grayscale image buffer with strictly validated dimensions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GrayscaleImage {
+    width: usize,
+    height: usize,
+    pixels: Vec<u8>,
+}
+
+impl GrayscaleImage {
+    /// Creates a new grayscale image validating that pixel buffer matches width * height.
+    pub fn new(width: usize, height: usize, pixels: Vec<u8>) -> Result<Self, CoreError> {
+        let expected_len = width
+            .checked_mul(height)
+            .ok_or(CoreError::DimensionOverflow)?;
+        if pixels.len() != expected_len {
+            return Err(CoreError::BufferSizeMismatch {
+                expected: expected_len,
+                actual: pixels.len(),
+            });
+        }
+        Ok(Self {
+            width,
+            height,
+            pixels,
+        })
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    pub fn pixels(&self) -> &[u8] {
+        &self.pixels
+    }
+
+    pub fn into_pixels(self) -> Vec<u8> {
+        self.pixels
+    }
+
+    pub fn as_slice_2d(&self) -> &[u8] {
+        &self.pixels
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RawFrame {
-    pixels: Vec<u8>,
+    image: GrayscaleImage,
 }
 
 impl RawFrame {
@@ -138,15 +350,39 @@ impl RawFrame {
                 len: pixels.len(),
             });
         }
-        Ok(Self { pixels })
+        let image = GrayscaleImage::new(WIDTH as usize, HEIGHT as usize, pixels)?;
+        Ok(Self { image })
+    }
+
+    /// Constructs a RawFrame from a validated GrayscaleImage.
+    pub fn from_image(image: GrayscaleImage) -> Result<Self, CoreError> {
+        if image.width() != WIDTH as usize || image.height() != HEIGHT as usize {
+            return Err(CoreError::InvalidFrame {
+                width: image.width() as u32,
+                height: image.height() as u32,
+                dpi: DPI,
+                len: image.pixels().len(),
+            });
+        }
+        Ok(Self { image })
+    }
+
+    /// Reference to underlying GrayscaleImage.
+    pub fn as_image(&self) -> &GrayscaleImage {
+        &self.image
+    }
+
+    /// Converts into underlying GrayscaleImage.
+    pub fn into_image(self) -> GrayscaleImage {
+        self.image
     }
 
     pub fn pixels(&self) -> &[u8] {
-        &self.pixels
+        self.image.pixels()
     }
 
     pub fn sha256(&self) -> String {
-        sha256_bytes(&self.pixels)
+        sha256_bytes(self.image.pixels())
     }
 
     /// Returns a copy of the frame with inverted polarity (255 - pixel).
@@ -155,8 +391,13 @@ impl RawFrame {
     /// Standard industry AFIS representation uses dark ridges on a light background.
     #[must_use]
     pub fn inverted(&self) -> Self {
-        let pixels = self.pixels.iter().map(|&p| u8::MAX - p).collect();
-        Self { pixels }
+        let pixels = self.image.pixels().iter().map(|&p| u8::MAX - p).collect();
+        let image = GrayscaleImage {
+            width: self.image.width,
+            height: self.image.height,
+            pixels,
+        };
+        Self { image }
     }
 
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, CoreError> {
@@ -183,8 +424,8 @@ impl RawFrame {
         }
     }
 
-    pub fn from_png(path: impl AsRef<Path>) -> Result<Self, CoreError> {
-        let decoder = png::Decoder::new(fs::File::open(path)?);
+    pub fn from_png_bytes(bytes: &[u8]) -> Result<Self, CoreError> {
+        let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
         let mut reader = decoder.read_info()?;
         let mut data = vec![0; reader.output_buffer_size()];
         let info = reader.next_frame(&mut data)?;
@@ -198,6 +439,11 @@ impl RawFrame {
         Self::new(data[..info.buffer_size()].to_vec())
     }
 
+    pub fn from_png(path: impl AsRef<Path>) -> Result<Self, CoreError> {
+        let bytes = fs::read(path)?;
+        Self::from_png_bytes(&bytes)
+    }
+
     pub fn write_png(&self, path: impl AsRef<Path>) -> Result<(), CoreError> {
         let file = fs::File::create(path)?;
         let mut encoder = png::Encoder::new(file, WIDTH, HEIGHT);
@@ -209,32 +455,41 @@ impl RawFrame {
             unit: png::Unit::Meter,
         }));
         let mut writer = encoder.write_header()?;
-        writer.write_image_data(&self.pixels)?;
+        writer.write_image_data(self.pixels())?;
         Ok(())
     }
 
     pub fn write_pgm(&self, path: impl AsRef<Path>) -> Result<(), CoreError> {
         let mut header = format!("P5\n{} {}\n255\n", WIDTH, HEIGHT).into_bytes();
-        header.extend_from_slice(&self.pixels);
+        header.extend_from_slice(self.pixels());
         fs::write(path, header)?;
         Ok(())
     }
 
     pub fn from_pgm(path: impl AsRef<Path>) -> Result<Self, CoreError> {
         let data = fs::read(path)?;
+        Self::from_pgm_bytes(&data)
+    }
+
+    pub fn from_pgm_bytes(data: &[u8]) -> Result<Self, CoreError> {
         let mut i = 0;
 
         let skip_ws_and_comments = |data: &[u8], mut idx: usize| -> usize {
             while idx < data.len() {
-                if data[idx].is_ascii_whitespace() {
-                    idx += 1;
-                } else if data[idx] == b'#' {
-                    idx += 1;
-                    while idx < data.len() && data[idx] != b'\n' {
+                match data.get(idx) {
+                    Some(b) if b.is_ascii_whitespace() => {
                         idx += 1;
                     }
-                } else {
-                    break;
+                    Some(b'#') => {
+                        idx += 1;
+                        while idx < data.len() {
+                            if data.get(idx) == Some(&b'\n') {
+                                break;
+                            }
+                            idx += 1;
+                        }
+                    }
+                    _ => break,
                 }
             }
             idx
@@ -243,21 +498,29 @@ impl RawFrame {
         let read_token = |data: &[u8], mut idx: usize| -> Result<(String, usize), CoreError> {
             idx = skip_ws_and_comments(data, idx);
             let start = idx;
-            while idx < data.len() && !data[idx].is_ascii_whitespace() && data[idx] != b'#' {
-                idx += 1;
+            while idx < data.len() {
+                match data.get(idx) {
+                    Some(b) if !b.is_ascii_whitespace() && *b != b'#' => {
+                        idx += 1;
+                    }
+                    _ => break,
+                }
             }
             if start == idx {
                 return Err(CoreError::InvalidPgm(
                     "unexpected end of file in header".into(),
                 ));
             }
-            let token = std::str::from_utf8(&data[start..idx])
+            let slice = data
+                .get(start..idx)
+                .ok_or_else(|| CoreError::InvalidPgm("slice range out of bounds".into()))?;
+            let token = std::str::from_utf8(slice)
                 .map_err(|_| CoreError::InvalidPgm("invalid UTF-8 in header".into()))?
                 .to_string();
             Ok((token, idx))
         };
 
-        let (magic, next_i) = read_token(&data, i)?;
+        let (magic, next_i) = read_token(data, i)?;
         if magic != "P5" {
             return Err(CoreError::InvalidPgm(format!(
                 "expected magic P5, got {magic}"
@@ -265,19 +528,19 @@ impl RawFrame {
         }
         i = next_i;
 
-        let (w_str, next_i) = read_token(&data, i)?;
+        let (w_str, next_i) = read_token(data, i)?;
         let width: u32 = w_str
             .parse()
             .map_err(|_| CoreError::InvalidPgm(format!("invalid width {w_str}")))?;
         i = next_i;
 
-        let (h_str, next_i) = read_token(&data, i)?;
+        let (h_str, next_i) = read_token(data, i)?;
         let height: u32 = h_str
             .parse()
             .map_err(|_| CoreError::InvalidPgm(format!("invalid height {h_str}")))?;
         i = next_i;
 
-        let (max_str, next_i) = read_token(&data, i)?;
+        let (max_str, next_i) = read_token(data, i)?;
         let maxval: u32 = max_str
             .parse()
             .map_err(|_| CoreError::InvalidPgm(format!("invalid maxval {max_str}")))?;
@@ -289,14 +552,19 @@ impl RawFrame {
             )));
         }
 
-        if i >= data.len() || !data[i].is_ascii_whitespace() {
-            return Err(CoreError::InvalidPgm(
-                "missing whitespace after maxval".into(),
-            ));
+        match data.get(i) {
+            Some(b) if b.is_ascii_whitespace() => {}
+            _ => {
+                return Err(CoreError::InvalidPgm(
+                    "missing whitespace after maxval".into(),
+                ));
+            }
         }
         i += 1;
 
-        let payload = &data[i..];
+        let payload = data
+            .get(i..)
+            .ok_or_else(|| CoreError::InvalidPgm("missing image payload".into()))?;
         if payload.len() != FRAME_LEN {
             return Err(CoreError::InvalidPgm(format!(
                 "expected {FRAME_LEN} bytes payload, got {}",
@@ -338,7 +606,7 @@ impl RawFrame {
             .write_tag(tiff::tags::Tag::Make, "Futronic")?;
         image.encoder().write_tag(tiff::tags::Tag::Model, "FS80H")?;
 
-        image.write_data(&self.pixels)?;
+        image.write_data(self.pixels())?;
         Ok(())
     }
 
@@ -377,7 +645,7 @@ impl RawFrame {
     }
 
     pub fn write_raw_bytes(&self, path: impl AsRef<Path>) -> Result<(), CoreError> {
-        fs::write(path, &self.pixels)?;
+        fs::write(path, self.pixels())?;
         Ok(())
     }
 
@@ -718,5 +986,64 @@ mod tests {
         assert_eq!(manifest.raw_frame_bytes, FRAME_LEN);
         assert_eq!(manifest.sha256_raw_frame, frame.sha256());
         assert_eq!(manifest.format, ImageFormat::Tiff);
+    }
+
+    #[test]
+    fn test_raw_frame_png_bytes_roundtrip() {
+        let frame = RawFrame::new(vec![128u8; FRAME_LEN]).unwrap();
+        let mut png_bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png_bytes, WIDTH, HEIGHT);
+            encoder.set_color(png::ColorType::Grayscale);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(frame.pixels()).unwrap();
+        }
+        let recovered = RawFrame::from_png_bytes(&png_bytes).unwrap();
+        assert_eq!(recovered.sha256(), frame.sha256());
+    }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn test_arbitrary_pgm_bytes_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            let _ = RawFrame::from_pgm_bytes(&bytes);
+        }
+
+        #[test]
+        fn test_arbitrary_png_bytes_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            let _ = RawFrame::from_png_bytes(&bytes);
+        }
+
+        #[test]
+        fn test_arbitrary_quality_score_never_panic(score in any::<u8>()) {
+            let res = QualityScore::new(score);
+            if score <= 100 {
+                assert!(res.is_ok());
+                assert_eq!(res.unwrap().as_u8(), score);
+            } else {
+                assert!(res.is_err());
+            }
+        }
+
+        #[test]
+        fn test_arbitrary_match_score_never_panic(score in any::<f32>()) {
+            let res = MatchScore::new(score);
+            if (0.0..=100.0).contains(&score) {
+                assert!(res.is_ok());
+            } else {
+                assert!(res.is_err());
+            }
+        }
+
+        #[test]
+        fn test_arbitrary_grayscale_image_never_panic(
+            w in 0..100usize,
+            h in 0..100usize,
+            pixels in proptest::collection::vec(any::<u8>(), 0..500)
+        ) {
+            let _ = GrayscaleImage::new(w, h, pixels);
+        }
     }
 }

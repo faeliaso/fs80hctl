@@ -1,0 +1,15 @@
+[Unit]
+Description=Futronic FS80H Fingerprint Daemon Service
+Documentation=man:fs80hctl(1)
+Requires=fs80h.socket
+After=fs80h.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/fs80hctl serve --systemd-activation
+Restart=on-failure
+User=root
+Group=plugdev
+
+[Install]
+WantedBy=multi-user.target

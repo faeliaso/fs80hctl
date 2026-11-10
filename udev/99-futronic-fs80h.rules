@@ -1,0 +1,5 @@
+# Futronic FS80H / FS81H / FS88H / FS90 USB Fingerprint Scanners
+SUBSYSTEM=="usb", ATTR{idVendor}=="1491", ATTR{idProduct}=="0020", MODE="0666", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1491", ATTR{idProduct}=="0025", MODE="0666", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1491", ATTR{idProduct}=="0088", MODE="0666", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1491", ATTR{idProduct}=="0090", MODE="0666", GROUP="plugdev", TAG+="uaccess"

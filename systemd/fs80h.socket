@@ -1,0 +1,12 @@
+[Unit]
+Description=Futronic FS80H Fingerprint Daemon Socket
+Documentation=man:fs80hctl(1)
+
+[Socket]
+ListenStream=/run/fs80h/fs80h.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=plugdev
+
+[Install]
+WantedBy=sockets.target

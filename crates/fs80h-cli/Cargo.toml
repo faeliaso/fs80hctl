@@ -10,15 +10,43 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+base64.workspace = true
 clap.workspace = true
 fs80h-core = { path = "../fs80h-core" }
 fs80h-driver = { path = "../fs80h-driver" }
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [[test]]
 name = "cli_tests"
 path = "../../tests/cli_tests.rs"
+
+[[test]]
+name = "daemon_tests"
+path = "../../tests/daemon_tests.rs"
+
+[package.metadata.deb]
+maintainer = "fs80hctl Developers <developers@fs80hctl.org>"
+copyright = "2026, fs80hctl Contributors"
+extended-description = """\
+Futronic FS80/FS80H technical control CLI and capture daemon service."""
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/fs80hctl", "usr/bin/fs80hctl", "755"],
+    ["../../man/fs80hctl.1", "usr/share/man/man1/fs80hctl.1", "644"],
+    ["../../udev/99-futronic-fs80h.rules", "lib/udev/rules.d/99-futronic-fs80h.rules", "644"],
+    ["../../systemd/fs80h.service", "lib/systemd/system/fs80h.service", "644"],
+    ["../../systemd/fs80h.socket", "lib/systemd/system/fs80h.socket", "644"],
+]
+maintainer-scripts = "../../debian"
 
 
 
