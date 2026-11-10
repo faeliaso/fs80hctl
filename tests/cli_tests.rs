@@ -138,8 +138,8 @@ fn test_cli_verify_mismatch_with_exit_code() {
         ])
         .output()
         .expect("failed to execute");
-    // With --exit-code, exits with status code 1 when threshold is not met
-    assert_eq!(output.status.code(), Some(1));
+    // With --exit-code, exits with status code 2 (Biometric Mismatch) when threshold is not met
+    assert_eq!(output.status.code(), Some(2));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("below threshold"));
 }
@@ -397,4 +397,143 @@ fn test_cli_verify_gallery_text_and_json() {
             .contains("reference_mismatch.png")
             && m["matched"] == false
     }));
+}
+
+#[test]
+fn test_cli_format_json_and_clean_stdout_doctor() {
+    let output = bin()
+        .args(["--format", "json", "doctor"])
+        .output()
+        .expect("doctor format json");
+    assert!(output.status.success());
+
+    // stdout must be strictly valid JSON without any stray logging
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout_str.trim().is_empty());
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout_str).expect("stdout must be 100% valid JSON");
+    assert!(parsed.get("checks").is_some());
+    assert!(parsed.get("healthy").is_some());
+    assert!(parsed.get("devices_found").is_some());
+
+    // Verify checks contain udev, user_groups, nfiq2_tool
+    let checks = parsed["checks"].as_array().expect("checks array");
+    let check_names: Vec<&str> = checks.iter().filter_map(|c| c["name"].as_str()).collect();
+
+    assert!(check_names.contains(&"usb_subsystem"));
+    assert!(check_names.contains(&"udev_rules"));
+    assert!(check_names.contains(&"user_groups"));
+    assert!(check_names.contains(&"nfiq2_tool"));
+    assert!(check_names.contains(&"filesystem_write"));
+}
+
+#[test]
+fn test_cli_doctor_output_redirection() {
+    let tmp_dir = std::env::temp_dir().join(format!("fs80h-redir-test-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp_dir);
+    let report_file = tmp_dir.join("report.json");
+    let debug_file = tmp_dir.join("debug.log");
+
+    let stdout_target = std::fs::File::create(&report_file).expect("create report file");
+    let stderr_target = std::fs::File::create(&debug_file).expect("create debug file");
+
+    let status = bin()
+        .args(["-vv", "--format", "json", "doctor"])
+        .stdout(stdout_target)
+        .stderr(stderr_target)
+        .status()
+        .expect("run command with redirected streams");
+
+    assert!(status.success());
+
+    // report.json must contain strictly valid JSON
+    let report_content = std::fs::read_to_string(&report_file).expect("read report");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&report_content).expect("report.json must be valid JSON");
+    assert!(parsed.get("checks").is_some());
+
+    // debug.log must exist and be accessible
+    assert!(debug_file.exists());
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_cli_semantic_exit_codes() {
+    // Exit code 1: operational syntax error (invalid flag)
+    let out = bin()
+        .arg("--unknown-flag")
+        .output()
+        .expect("run invalid flag");
+    assert_eq!(out.status.code(), Some(1));
+
+    // Exit code 1: parameter validation failure
+    let out = bin()
+        .args([
+            "verify",
+            fixture("probe.png").to_str().unwrap(),
+            fixture("reference_match.png").to_str().unwrap(),
+            "--threshold",
+            "120",
+        ])
+        .output()
+        .expect("run invalid threshold");
+    assert_eq!(out.status.code(), Some(1));
+
+    // Exit code 2: biometric mismatch with --exit-code
+    let out = bin()
+        .args([
+            "verify",
+            fixture("probe.png").to_str().unwrap(),
+            fixture("reference_mismatch.png").to_str().unwrap(),
+            "--threshold",
+            "50",
+            "--exit-code",
+        ])
+        .output()
+        .expect("run verify mismatch");
+    assert_eq!(out.status.code(), Some(2));
+
+    // Exit code 0: biometric match
+    let out = bin()
+        .args([
+            "verify",
+            fixture("probe.png").to_str().unwrap(),
+            fixture("reference_match.png").to_str().unwrap(),
+            "--threshold",
+            "40",
+            "--exit-code",
+        ])
+        .output()
+        .expect("run verify match");
+    assert_eq!(out.status.code(), Some(0));
+}
+
+#[test]
+fn test_cli_format_json_error_structure() {
+    let out = bin()
+        .args([
+            "--format",
+            "json",
+            "verify",
+            fixture("probe.png").to_str().unwrap(),
+            fixture("reference_match.png").to_str().unwrap(),
+            "--threshold",
+            "200",
+        ])
+        .output()
+        .expect("run verify with invalid threshold in json format");
+
+    assert_eq!(out.status.code(), Some(1));
+    let stderr_str = String::from_utf8_lossy(&out.stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stderr_str).expect("stderr should contain structured JSON error");
+    assert_eq!(parsed["status"], "error");
+    assert_eq!(parsed["code"], 1);
+    assert!(
+        parsed["message"]
+            .as_str()
+            .unwrap()
+            .contains("--threshold must be between 0 and 100")
+    );
 }
