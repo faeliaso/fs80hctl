@@ -144,8 +144,21 @@ pub enum Command {
     Verify(VerifyArgs),
     /// Run environment diagnostics (USB subsystem, device permissions, udev rules, groups, NFIQ2)
     Doctor,
+    /// Run fast capture daemon listening on Unix Domain Socket
+    Serve(ServeArgs),
     /// Display technical manual and quick reference guide
     Manual,
+}
+
+#[derive(Args, Debug)]
+pub struct ServeArgs {
+    /// Unix Domain Socket path (default: /run/fs80h/fs80h.sock on Linux, /tmp/fs80h.sock on macOS)
+    #[arg(long, env = "FS80H_SOCKET_PATH")]
+    pub socket_path: Option<PathBuf>,
+
+    /// Inherit socket descriptor passed via systemd socket activation
+    #[arg(long)]
+    pub systemd_activation: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -192,6 +205,12 @@ pub struct CaptureArgs {
     /// Exposure dose used with --variable-dose (default: 166)
     #[arg(long, default_value_t = 166)]
     pub dose: u8,
+    /// Connect to running fs80hctl capture daemon over Unix Domain Socket
+    #[arg(long)]
+    pub client: bool,
+    /// Path to daemon Unix Domain Socket when used with --client
+    #[arg(long)]
+    pub socket: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -222,6 +241,12 @@ pub struct EnrollArgs {
     /// Exposure dose used with --variable-dose (default: 166)
     #[arg(long, default_value_t = 166)]
     pub dose: u8,
+    /// Connect to running fs80hctl capture daemon over Unix Domain Socket
+    #[arg(long)]
+    pub client: bool,
+    /// Path to daemon Unix Domain Socket when used with --client
+    #[arg(long)]
+    pub socket: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]

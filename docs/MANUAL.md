@@ -18,6 +18,7 @@
    - [convert (Forensic Transcoding)](#convert)
    - [inspect (Image & Custody Inspection)](#inspect)
    - [verify (1:1 and 1:N Biometric Comparison)](#verify)
+   - [serve (Daemon over Unix Domain Socket)](#serve)
    - [manual (Built-in Manual)](#manual)
 5. [Supported Formats](#supported-formats)
 6. [Chain of Custody & Manifests](#chain-of-custody--manifests)
@@ -132,8 +133,27 @@ fs80hctl capture --format pgm --output print.pgm
 # Raw optical sensor frame without inversion (light ridges on dark background)
 fs80hctl capture --raw --output sensor_raw.png
 
-# Custom direct variable-dose optical acquisition
+# Direct variable-dose optical acquisition
 fs80hctl capture --variable-dose --dose 180 --output dose.png
+
+# Capture via background daemon (sub-50ms latency)
+fs80hctl capture --client --output stream.png
+```
+
+---
+
+### `serve`
+Runs a background daemon process that keeps the scanner USB context open and listens on a Unix Domain Socket (UDS) for low-latency capture requests and event streaming via JSON Lines.
+
+```bash
+# Start daemon listening on default socket (/run/fs80h/fs80h.sock or /tmp/fs80h.sock)
+fs80hctl serve
+
+# Start daemon with custom socket path
+fs80hctl serve --socket-path /tmp/my_fs80h.sock
+
+# Start daemon with mock transport for testing
+fs80hctl --mock match serve --socket-path /tmp/test.sock
 ```
 
 ---

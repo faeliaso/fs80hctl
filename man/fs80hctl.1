@@ -59,6 +59,9 @@ Inspect metadata, SHA-256 hash, and quality metrics of a biometric image.
 .B verify PROBE [REFERENCE] [\-\-gallery DIR] [\-\-threshold T] [\-\-exit\-code]
 Compare biometric images (1:1 with reference file or 1:N against a gallery directory) and calculate technical similarity score.
 .TP
+.B serve [\-\-socket\-path PATH] [\-\-systemd]
+Run background capture daemon over Unix Domain Socket for low-latency acquisition.
+.TP
 .B manual
 Display technical reference manual and usage guide on standard output.
 .SH SUPPORTED FORMATS

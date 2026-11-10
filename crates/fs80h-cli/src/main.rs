@@ -1,4 +1,5 @@
 mod cli;
+mod daemon;
 mod doctor;
 
 use clap::Parser;
@@ -189,6 +190,26 @@ fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
             }
         }
 
+        Command::Serve(serve_args) => {
+            let socket_path = serve_args
+                .socket_path
+                .clone()
+                .unwrap_or_else(daemon::default_socket_path);
+            let config = daemon::DaemonConfig {
+                socket_path,
+                mock: cli.mock,
+                systemd_activation: serve_args.systemd_activation,
+            };
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| {
+                    CliError::Operational(format!("failed to build tokio runtime: {e}"))
+                })?;
+            rt.block_on(daemon::run_daemon(config))
+                .map_err(|e| CliError::Operational(format!("daemon error: {e}")))?;
+        }
+
         Command::Manual => match format {
             OutputFormat::Json => {
                 print_json(&serde_json::json!({ "manual": MANUAL_TEXT.trim() }))?;
@@ -206,6 +227,26 @@ fn handle_capture(
     format: OutputFormat,
     mock: Option<MockScenario>,
 ) -> Result<(), CliError> {
+    if args.client {
+        let socket_path = args
+            .socket
+            .clone()
+            .unwrap_or_else(daemon::default_socket_path);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| CliError::Operational(format!("build tokio runtime: {e}")))?;
+        return rt.block_on(daemon::run_client_capture(
+            &socket_path,
+            &args.output,
+            args.image_format,
+            args.raw,
+            args.timeout,
+            args.min_quality,
+            format,
+        ));
+    }
+
     let mut scanner = selected(&args.selection, mock)?;
     let raw_frame = if args.wait {
         let dose_opt = if args.variable_dose {

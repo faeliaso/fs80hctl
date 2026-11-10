@@ -8,6 +8,7 @@ license.workspace = true
 clap.workspace = true
 fs80h-core = { path = "../fs80h-core" }
 futronic-fs80h-rs.workspace = true
+rusb.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
