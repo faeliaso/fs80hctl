@@ -288,8 +288,10 @@ dependencies = [
 name = "fs80h-driver"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "fs80h-core",
  "futronic-fs80h-rs",
+ "serde",
  "thiserror 2.0.21",
 ]
 

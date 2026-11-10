@@ -5,8 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+clap.workspace = true
 fs80h-core = { path = "../fs80h-core" }
 futronic-fs80h-rs.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 
 

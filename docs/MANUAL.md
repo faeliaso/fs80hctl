@@ -68,6 +68,7 @@ fs80hctl manual
 | `--format <text\|json\|raw>` | Global output format mode: human-readable `text`, structured `json`, or pure `raw` byte stream. Default: `text`. |
 | `--json` | Shorthand alias for `--format json`. Output results in structured JSON format. |
 | `-v`, `--verbose` | Increase logging verbosity on `stderr` (`-v` for INFO, `-vv` for DEBUG, `-vvv` for TRACE). |
+| `--mock <scenario>` | Hardware mock simulation scenario (`match`, `mismatch`, `degraded`, `empty`, `disconnect`) for testing without physical devices. Configurable via `FS80H_MOCK_FIXTURE`. |
 | `-h`, `--help` | Print help information and usage syntax. |
 | `-V`, `--version` | Print the installed `fs80hctl` version. |
 

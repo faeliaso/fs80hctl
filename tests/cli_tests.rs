@@ -537,3 +537,123 @@ fn test_cli_format_json_error_structure() {
             .contains("--threshold must be between 0 and 100")
     );
 }
+
+#[test]
+fn test_cli_mock_capture_success_json() {
+    let tmp_dir = std::env::temp_dir().join(format!("fs80h-mock-cap-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp_dir);
+    let output_file = tmp_dir.join("mock_capture.png");
+
+    let out = bin()
+        .args([
+            "--mock",
+            "match",
+            "capture",
+            "--output",
+            output_file.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("mock match capture");
+
+    assert_eq!(out.status.code(), Some(0));
+    assert!(output_file.exists());
+    assert!(tmp_dir.join("mock_capture.png.meta.json").exists());
+
+    let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid json output");
+    assert_eq!(parsed["format"], "png");
+    assert_eq!(parsed["quality"]["accepted"], true);
+    assert_eq!(parsed["standard_afis"], true);
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_cli_mock_verify_match() {
+    let out = bin()
+        .args([
+            "--mock",
+            "match",
+            "verify",
+            fixture("probe.png").to_str().unwrap(),
+            "--exit-code",
+        ])
+        .output()
+        .expect("mock match verify");
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("meets threshold"));
+}
+
+#[test]
+fn test_cli_mock_verify_mismatch() {
+    let out = bin()
+        .args([
+            "--mock",
+            "mismatch",
+            "verify",
+            fixture("probe.png").to_str().unwrap(),
+            "--exit-code",
+        ])
+        .output()
+        .expect("mock mismatch verify");
+
+    assert_eq!(out.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("below threshold"));
+}
+
+#[test]
+fn test_cli_mock_capture_degraded_quality() {
+    let tmp_file = std::env::temp_dir().join(format!("mock_deg_{}.png", std::process::id()));
+    let out = bin()
+        .args([
+            "--mock",
+            "degraded",
+            "capture",
+            "--output",
+            tmp_file.to_str().unwrap(),
+        ])
+        .output()
+        .expect("mock degraded capture");
+
+    assert_eq!(out.status.code(), Some(4));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("insufficient biometric quality"));
+    let _ = std::fs::remove_file(&tmp_file);
+}
+
+#[test]
+fn test_cli_mock_capture_disconnect_hardware() {
+    let tmp_file = std::env::temp_dir().join(format!("mock_dc_{}.png", std::process::id()));
+    let out = bin()
+        .args([
+            "--mock",
+            "disconnect",
+            "capture",
+            "--output",
+            tmp_file.to_str().unwrap(),
+        ])
+        .output()
+        .expect("mock disconnect capture");
+
+    assert_eq!(out.status.code(), Some(5));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("hardware error"));
+    let _ = std::fs::remove_file(&tmp_file);
+}
+
+#[test]
+fn test_cli_mock_env_variable() {
+    let out = bin()
+        .env("FS80H_MOCK_FIXTURE", "match")
+        .args(["devices"])
+        .output()
+        .expect("mock env devices");
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("1491:0020 bus 1 address 2 model 80"));
+}

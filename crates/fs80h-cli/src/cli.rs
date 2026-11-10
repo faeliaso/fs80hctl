@@ -1,5 +1,6 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use fs80h_core::ImageFormat;
+use fs80h_driver::MockScenario;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -97,6 +98,16 @@ pub struct Cli {
     /// Increase logging verbosity (-v for INFO, -vv for DEBUG, -vvv for TRACE)
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
+
+    /// Hardware mock simulation scenario (match, mismatch, degraded, empty, disconnect)
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        env = "FS80H_MOCK_FIXTURE",
+        visible_alias = "mock-fixture"
+    )]
+    pub mock: Option<MockScenario>,
 
     #[command(subcommand)]
     pub command: Command,
@@ -285,6 +296,11 @@ GLOBAL OPTIONS
     -v, --verbose
         Increase logging verbosity on stderr (-v for INFO, -vv for DEBUG, -vvv for TRACE).
         Also configurable via RUST_LOG environment variable.
+
+    --mock <SCENARIO>
+        Simulated hardware mock scenario for testing without physical scanner:
+        match, mismatch, degraded, empty, disconnect.
+        Also configurable via FS80H_MOCK_FIXTURE environment variable.
 
     -h, --help
         Print quick help message or subcommand syntax.

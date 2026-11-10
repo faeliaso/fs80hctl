@@ -6,12 +6,15 @@ use cli::{
     CaptureArgs, Cli, CliError, CliExitCode, Command, ConvertArgs, DeviceCommand, EnrollArgs,
     InspectArgs, MANUAL_TEXT, OutputFormat, Selection, VerifyArgs, VerifyOutput,
 };
-use doctor::run_doctor;
+use doctor::run_doctor_with_mock;
 use fs80h_core::{
     CaptureManifest, DPI, DerivedManifest, FRAME_LEN, FingerprintScanner, HEIGHT, ImageFormat,
     Manifest, RawFrame, WIDTH, compare_frames, compare_probe_to_gallery, evaluate_quality,
 };
-use fs80h_driver::{DriverError, FutronicScanner, list_devices};
+use fs80h_driver::{
+    DriverError, FutronicScanner, MockScenario, MockTransport, TransportError,
+    list_devices_with_mock,
+};
 use serde::Serialize;
 use std::io::Write;
 use std::path::PathBuf;
@@ -49,10 +52,20 @@ fn print_json<T: Serialize>(value: &T) -> Result<(), CliError> {
     Ok(())
 }
 
-fn selected(sel: &Selection) -> Result<FutronicScanner, CliError> {
+fn selected(sel: &Selection, mock: Option<MockScenario>) -> Result<FutronicScanner, CliError> {
+    if let Some(scenario) = mock {
+        if scenario == MockScenario::Disconnect {
+            return Err(CliError::Hardware(
+                "USB device disconnected (mock scenario)".into(),
+            ));
+        }
+        return Ok(FutronicScanner::new_mock(MockTransport::new(scenario)));
+    }
+
     match (sel.bus, sel.address) {
         (Some(bus), Some(address)) => {
-            let devs = list_devices().map_err(|e| CliError::Hardware(e.to_string()))?;
+            let devs =
+                list_devices_with_mock(None).map_err(|e| CliError::Hardware(e.to_string()))?;
             let info = devs
                 .into_iter()
                 .find(|d| d.bus_number == bus && d.address == address)
@@ -74,6 +87,13 @@ fn map_driver_error(err: DriverError) -> CliError {
     match err {
         DriverError::Timeout(d) => CliError::Timeout(format!("{d:?}")),
         DriverError::Native(native_err) => CliError::Hardware(native_err.to_string()),
+        DriverError::Transport(TransportError::DeviceDisconnected) => {
+            CliError::Hardware("USB device disconnected".into())
+        }
+        DriverError::Transport(TransportError::Timeout) => {
+            CliError::Timeout("USB transport timeout".into())
+        }
+        DriverError::Transport(t) => CliError::Hardware(t.to_string()),
         DriverError::Core(core_err) => CliError::Operational(core_err.to_string()),
     }
 }
@@ -81,7 +101,8 @@ fn map_driver_error(err: DriverError) -> CliError {
 fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
     match &cli.command {
         Command::Devices => {
-            let devices = list_devices().map_err(|e| CliError::Hardware(e.to_string()))?;
+            let devices =
+                list_devices_with_mock(cli.mock).map_err(|e| CliError::Hardware(e.to_string()))?;
             match format {
                 OutputFormat::Json => print_json(&devices)?,
                 OutputFormat::Text | OutputFormat::Raw => {
@@ -102,7 +123,7 @@ fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
         Command::Device {
             command: DeviceCommand::Inspect(selection),
         } => {
-            let scanner = selected(selection)?;
+            let scanner = selected(selection, cli.mock)?;
             let value = serde_json::json!({"device": scanner.device_info()});
             match format {
                 OutputFormat::Json => print_json(&value)?,
@@ -113,11 +134,11 @@ fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
         }
 
         Command::Capture(args) => {
-            handle_capture(args, format)?;
+            handle_capture(args, format, cli.mock)?;
         }
 
         Command::Enroll(args) => {
-            handle_enroll(args, format)?;
+            handle_enroll(args, format, cli.mock)?;
         }
 
         Command::Convert(args) => {
@@ -129,11 +150,11 @@ fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
         }
 
         Command::Verify(args) => {
-            handle_verify(args, format)?;
+            handle_verify(args, format, cli.mock)?;
         }
 
         Command::Doctor => {
-            let report = run_doctor();
+            let report = run_doctor_with_mock(cli.mock);
             match format {
                 OutputFormat::Json => print_json(&report)?,
                 OutputFormat::Text | OutputFormat::Raw => {
@@ -180,8 +201,12 @@ fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
     Ok(())
 }
 
-fn handle_capture(args: &CaptureArgs, format: OutputFormat) -> Result<(), CliError> {
-    let mut scanner = selected(&args.selection)?;
+fn handle_capture(
+    args: &CaptureArgs,
+    format: OutputFormat,
+    mock: Option<MockScenario>,
+) -> Result<(), CliError> {
+    let mut scanner = selected(&args.selection, mock)?;
     let raw_frame = if args.wait {
         let dose_opt = if args.variable_dose {
             Some(args.dose)
@@ -225,6 +250,14 @@ fn handle_capture(args: &CaptureArgs, format: OutputFormat) -> Result<(), CliErr
 
     let quality = evaluate_quality(&raw_frame);
     let sha256_raw = raw_frame.sha256();
+
+    // Rejection due to insufficient biometric quality (Exit code 4)
+    if !quality.accepted || (args.min_quality > 0 && quality.score < args.min_quality) {
+        return Err(CliError::QualityRejected {
+            score: quality.score,
+            min_quality: args.min_quality,
+        });
+    }
 
     let img_format = args
         .image_format
@@ -318,13 +351,17 @@ fn handle_capture(args: &CaptureArgs, format: OutputFormat) -> Result<(), CliErr
     Ok(())
 }
 
-fn handle_enroll(args: &EnrollArgs, format: OutputFormat) -> Result<(), CliError> {
+fn handle_enroll(
+    args: &EnrollArgs,
+    format: OutputFormat,
+    mock: Option<MockScenario>,
+) -> Result<(), CliError> {
     if args.samples == 0 {
         return Err(CliError::Operational(
             "--samples must be greater than 0".into(),
         ));
     }
-    let mut scanner = selected(&args.selection)?;
+    let mut scanner = selected(&args.selection, mock)?;
     let dose_opt = if args.variable_dose {
         Some(args.dose)
     } else {
@@ -638,7 +675,11 @@ fn handle_inspect(args: &InspectArgs, format: OutputFormat) -> Result<(), CliErr
     Ok(())
 }
 
-fn handle_verify(args: &VerifyArgs, format: OutputFormat) -> Result<(), CliError> {
+fn handle_verify(
+    args: &VerifyArgs,
+    format: OutputFormat,
+    mock: Option<MockScenario>,
+) -> Result<(), CliError> {
     if !args.threshold.is_finite() || !(0.0..=100.0).contains(&args.threshold) {
         return Err(CliError::Operational(
             "--threshold must be between 0 and 100".into(),
@@ -805,6 +846,51 @@ fn handle_verify(args: &VerifyArgs, format: OutputFormat) -> Result<(), CliError
             ));
         }
         (None, None) => {
+            if let Some(mock_scenario) = mock {
+                let mut scanner = selected(
+                    &Selection {
+                        bus: None,
+                        address: None,
+                    },
+                    Some(mock_scenario),
+                )?;
+                let reference = scanner.capture().map_err(map_driver_error)?;
+                let deterministic = compare_frames(&probe, &reference);
+                let threshold_met = deterministic.score >= args.threshold;
+                let out = VerifyOutput {
+                    threshold: args.threshold,
+                    threshold_met,
+                    deterministic,
+                    biometric_score: None,
+                };
+
+                match format {
+                    OutputFormat::Json => print_json(&out)?,
+                    OutputFormat::Text | OutputFormat::Raw => {
+                        println!(
+                            "Deterministic score: {:.1}/100 ({})",
+                            out.deterministic.score,
+                            if out.threshold_met {
+                                "meets threshold"
+                            } else {
+                                "below threshold"
+                            }
+                        );
+                        for w in &out.deterministic.warnings {
+                            println!("Warning: {w}");
+                        }
+                    }
+                }
+
+                if args.exit_code && !threshold_met {
+                    return Err(CliError::Mismatch {
+                        score: out.deterministic.score,
+                        threshold: args.threshold,
+                    });
+                }
+                return Ok(());
+            }
+
             return Err(CliError::Operational(
                 "specify a reference file for 1:1 verification or --gallery <DIR> for 1:N".into(),
             ));

@@ -183,8 +183,8 @@ impl RawFrame {
         }
     }
 
-    pub fn from_png(path: impl AsRef<Path>) -> Result<Self, CoreError> {
-        let decoder = png::Decoder::new(fs::File::open(path)?);
+    pub fn from_png_bytes(bytes: &[u8]) -> Result<Self, CoreError> {
+        let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
         let mut reader = decoder.read_info()?;
         let mut data = vec![0; reader.output_buffer_size()];
         let info = reader.next_frame(&mut data)?;
@@ -196,6 +196,11 @@ impl RawFrame {
             return Err(CoreError::InvalidPng);
         }
         Self::new(data[..info.buffer_size()].to_vec())
+    }
+
+    pub fn from_png(path: impl AsRef<Path>) -> Result<Self, CoreError> {
+        let bytes = fs::read(path)?;
+        Self::from_png_bytes(&bytes)
     }
 
     pub fn write_png(&self, path: impl AsRef<Path>) -> Result<(), CoreError> {
@@ -718,5 +723,20 @@ mod tests {
         assert_eq!(manifest.raw_frame_bytes, FRAME_LEN);
         assert_eq!(manifest.sha256_raw_frame, frame.sha256());
         assert_eq!(manifest.format, ImageFormat::Tiff);
+    }
+
+    #[test]
+    fn test_raw_frame_png_bytes_roundtrip() {
+        let frame = RawFrame::new(vec![128u8; FRAME_LEN]).unwrap();
+        let mut png_bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png_bytes, WIDTH, HEIGHT);
+            encoder.set_color(png::ColorType::Grayscale);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(frame.pixels()).unwrap();
+        }
+        let recovered = RawFrame::from_png_bytes(&png_bytes).unwrap();
+        assert_eq!(recovered.sha256(), frame.sha256());
     }
 }

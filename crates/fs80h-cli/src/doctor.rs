@@ -1,4 +1,4 @@
-use fs80h_driver::{FutronicScanner, list_devices};
+use fs80h_driver::{FutronicScanner, MockScenario, MockTransport, list_devices_with_mock};
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use std::path::{Path, PathBuf};
@@ -22,19 +22,28 @@ pub struct DoctorReport {
     pub devices_found: usize,
 }
 
+#[allow(dead_code)]
 pub fn run_doctor() -> DoctorReport {
+    run_doctor_with_mock(None)
+}
+
+pub fn run_doctor_with_mock(mock: Option<MockScenario>) -> DoctorReport {
     let mut checks = Vec::new();
     let mut healthy = true;
     let mut devices_found = 0;
 
     // 1. USB Subsystem & Device Detection
-    match list_devices() {
+    match list_devices_with_mock(mock) {
         Ok(devices) => {
             devices_found = devices.len();
             checks.push(DoctorCheck {
                 name: "usb_subsystem".into(),
                 passed: true,
-                message: "USB subsystem operational (libusb initialized)".into(),
+                message: if mock.is_some() {
+                    "USB subsystem operational (emulated mock transport)".into()
+                } else {
+                    "USB subsystem operational (libusb initialized)".into()
+                },
                 details: None,
                 suggestion: None,
             });
@@ -66,7 +75,7 @@ pub fn run_doctor() -> DoctorReport {
                 let mut access_details: Vec<String> = Vec::new();
 
                 #[cfg(target_os = "linux")]
-                {
+                if mock.is_none() {
                     for d in &devices {
                         let dev_path = format!("/dev/bus/usb/{:03}/{:03}", d.bus_number, d.address);
                         let path = Path::new(&dev_path);
@@ -91,7 +100,20 @@ pub fn run_doctor() -> DoctorReport {
                     }
                 }
 
-                match FutronicScanner::open_first() {
+                let open_result = match mock {
+                    Some(scenario) => {
+                        if scenario == MockScenario::Disconnect {
+                            Err(fs80h_driver::DriverError::Transport(
+                                fs80h_driver::TransportError::DeviceDisconnected,
+                            ))
+                        } else {
+                            Ok(FutronicScanner::new_mock(MockTransport::new(scenario)))
+                        }
+                    }
+                    None => FutronicScanner::open_first(),
+                };
+
+                match open_result {
                     Ok(_) => {
                         let details_msg = if access_details.is_empty() {
                             None
