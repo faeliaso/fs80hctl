@@ -1,4 +1,6 @@
-use crate::domain::{HEIGHT, RawFrame, WIDTH};
+use crate::domain::{HEIGHT, MatchScore, RawFrame, WIDTH};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 use serde::Serialize;
 use std::f32::consts::PI;
 
@@ -11,7 +13,7 @@ pub struct Minutia {
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct MatchReport {
-    pub score: f32,
+    pub score: MatchScore,
     pub matched_minutiae: usize,
     pub probe_minutiae: usize,
     pub reference_minutiae: usize,
@@ -20,6 +22,7 @@ pub struct MatchReport {
 
 pub fn extract_minutiae(frame: &RawFrame) -> Vec<Minutia> {
     let mut out = Vec::new();
+    let pixels = frame.pixels();
     for y in (16..HEIGHT as usize - 16).step_by(16) {
         for x in (16..WIDTH as usize - 16).step_by(16) {
             let mut sum = 0.0;
@@ -28,15 +31,26 @@ pub fn extract_minutiae(frame: &RawFrame) -> Vec<Minutia> {
             let mut gy = 0.0;
             let mut n = 0.0;
             for yy in y - 8..y + 8 {
+                let row_offset = yy * WIDTH as usize;
                 for xx in x - 8..x + 8 {
-                    let p = frame.pixels()[yy * WIDTH as usize + xx] as f32;
-                    sum += p;
-                    sum_sq += p * p;
-                    gx += frame.pixels()[yy * WIDTH as usize + xx + 1] as f32
-                        - frame.pixels()[yy * WIDTH as usize + xx - 1] as f32;
-                    gy += frame.pixels()[(yy + 1) * WIDTH as usize + xx] as f32
-                        - frame.pixels()[(yy - 1) * WIDTH as usize + xx] as f32;
-                    n += 1.0;
+                    if let Some(&p_u8) = pixels.get(row_offset + xx) {
+                        let p = p_u8 as f32;
+                        sum += p;
+                        sum_sq += p * p;
+                        if let (Some(&p_right), Some(&p_left)) = (
+                            pixels.get(row_offset + xx + 1),
+                            pixels.get(row_offset + xx - 1),
+                        ) {
+                            gx += p_right as f32 - p_left as f32;
+                        }
+                        if let (Some(&p_down), Some(&p_up)) = (
+                            pixels.get((yy + 1) * WIDTH as usize + xx),
+                            pixels.get((yy - 1) * WIDTH as usize + xx),
+                        ) {
+                            gy += p_down as f32 - p_up as f32;
+                        }
+                        n += 1.0;
+                    }
                 }
             }
             let variance = (sum_sq / n - (sum / n).powi(2)).max(0.0);
@@ -53,16 +67,16 @@ pub fn extract_minutiae(frame: &RawFrame) -> Vec<Minutia> {
     }
     out
 }
+
 fn angle_distance(a: f32, b: f32) -> f32 {
     let d = (a - b).abs().rem_euclid(180.0);
     d.min(180.0 - d)
 }
-pub fn compare_frames(probe: &RawFrame, reference: &RawFrame) -> MatchReport {
-    let p = extract_minutiae(probe);
-    let r = extract_minutiae(reference);
+
+pub fn compare_minutiae_sets(p: &[Minutia], r: &[Minutia]) -> MatchReport {
     let mut used = vec![false; r.len()];
     let mut matched = 0;
-    for a in &p {
+    for a in p {
         if let Some((i, _)) = r
             .iter()
             .enumerate()
@@ -74,7 +88,7 @@ pub fn compare_frames(probe: &RawFrame, reference: &RawFrame) -> MatchReport {
             .min_by(|(_, x), (_, y)| {
                 let dx = (a.x - x.x).powi(2) + (a.y - x.y).powi(2);
                 let dy = (a.x - y.x).powi(2) + (a.y - y.y).powi(2);
-                dx.partial_cmp(&dy).unwrap()
+                dx.partial_cmp(&dy).unwrap_or(std::cmp::Ordering::Equal)
             })
         {
             used[i] = true;
@@ -82,11 +96,13 @@ pub fn compare_frames(probe: &RawFrame, reference: &RawFrame) -> MatchReport {
         }
     }
     let denom = p.len().max(r.len());
-    let score = if denom == 0 {
+    let raw_score = if denom == 0 {
         0.0
     } else {
         matched as f32 / denom as f32 * 100.0
     };
+    let score =
+        MatchScore::new(raw_score.clamp(0.0, 100.0)).unwrap_or(MatchScore::new(0.0).unwrap());
     let mut warnings = vec![
         "result is a technical similarity indicator; not civil identification, forensic expert report, or liveness verification".into(),
     ];
@@ -102,10 +118,16 @@ pub fn compare_frames(probe: &RawFrame, reference: &RawFrame) -> MatchReport {
     }
 }
 
+pub fn compare_frames(probe: &RawFrame, reference: &RawFrame) -> MatchReport {
+    let p = extract_minutiae(probe);
+    let r = extract_minutiae(reference);
+    compare_minutiae_sets(&p, &r)
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct GalleryMatchCandidate {
     pub reference_path: String,
-    pub score: f32,
+    pub score: MatchScore,
     pub matched: bool,
     pub report: MatchReport,
 }
@@ -124,19 +146,40 @@ pub fn compare_probe_to_gallery(
     gallery: &[(String, RawFrame)],
     threshold: f32,
 ) -> GalleryMatchReport {
-    let probe_minutiae = extract_minutiae(probe).len();
-    let mut matches = Vec::with_capacity(gallery.len());
+    let probe_minutiae = extract_minutiae(probe);
+    let probe_count = probe_minutiae.len();
 
-    for (path, ref_frame) in gallery {
-        let report = compare_frames(probe, ref_frame);
-        let matched = report.score >= threshold;
-        matches.push(GalleryMatchCandidate {
-            reference_path: path.clone(),
-            score: report.score,
-            matched,
-            report,
-        });
-    }
+    #[cfg(feature = "parallel")]
+    let mut matches: Vec<GalleryMatchCandidate> = gallery
+        .par_iter()
+        .map(|(path, ref_frame)| {
+            let ref_m = extract_minutiae(ref_frame);
+            let report = compare_minutiae_sets(&probe_minutiae, &ref_m);
+            let matched = *report.score >= threshold;
+            GalleryMatchCandidate {
+                reference_path: path.clone(),
+                score: report.score,
+                matched,
+                report,
+            }
+        })
+        .collect();
+
+    #[cfg(not(feature = "parallel"))]
+    let mut matches: Vec<GalleryMatchCandidate> = gallery
+        .iter()
+        .map(|(path, ref_frame)| {
+            let ref_m = extract_minutiae(ref_frame);
+            let report = compare_minutiae_sets(&probe_minutiae, &ref_m);
+            let matched = *report.score >= threshold;
+            GalleryMatchCandidate {
+                reference_path: path.clone(),
+                score: report.score,
+                matched,
+                report,
+            }
+        })
+        .collect();
 
     matches.sort_by(|a, b| {
         b.score
@@ -147,12 +190,38 @@ pub fn compare_probe_to_gallery(
     let threshold_met = best_match.as_ref().map(|b| b.matched).unwrap_or(false);
 
     GalleryMatchReport {
-        probe_minutiae,
+        probe_minutiae: probe_count,
         total_candidates: gallery.len(),
         matches,
         best_match,
         threshold_met,
     }
+}
+
+/// Matches a single probe frame concurrently against N candidate frames.
+pub fn match_one_to_n(
+    probe: &RawFrame,
+    candidates: &[RawFrame],
+    threshold: MatchScore,
+) -> Vec<(usize, MatchScore)> {
+    let probe_m = extract_minutiae(probe);
+
+    #[cfg(feature = "parallel")]
+    let iter = candidates.par_iter().enumerate();
+
+    #[cfg(not(feature = "parallel"))]
+    let iter = candidates.iter().enumerate();
+
+    iter.filter_map(|(idx, candidate)| {
+        let ref_m = extract_minutiae(candidate);
+        let report = compare_minutiae_sets(&probe_m, &ref_m);
+        if *report.score >= *threshold {
+            Some((idx, report.score))
+        } else {
+            None
+        }
+    })
+    .collect()
 }
 
 #[cfg(test)]
@@ -216,5 +285,27 @@ mod tests {
         assert_eq!(best.reference_path, "exact.png");
         assert_eq!(best.score, 100.0);
         assert!(best.matched);
+    }
+
+    #[test]
+    fn test_matcher_one_to_n() {
+        let mut pixels = vec![0u8; FRAME_LEN];
+        for (i, p) in pixels.iter_mut().enumerate() {
+            let x = (i % WIDTH as usize) as f32;
+            let y = (i / WIDTH as usize) as f32;
+            let val = ((x / 10.0).sin() * (y / 10.0).cos() * 100.0 + 128.0) as u8;
+            *p = val;
+        }
+        let probe = RawFrame::new(pixels.clone()).unwrap();
+        let exact_match = RawFrame::new(pixels).unwrap();
+        let empty_frame = RawFrame::new(vec![128u8; FRAME_LEN]).unwrap();
+
+        let candidates = vec![empty_frame, exact_match];
+        let threshold = MatchScore::new(40.0).unwrap();
+        let matches = match_one_to_n(&probe, &candidates, threshold);
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].0, 1);
+        assert_eq!(*matches[0].1, 100.0);
     }
 }

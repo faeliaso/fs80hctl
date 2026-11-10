@@ -98,7 +98,7 @@ impl HardwareActor {
                                     let _ =
                                         event_tx_clone.blocking_send(ServerEvent::FingerDetected {
                                             area_coverage: coverage,
-                                            score: Some(presence.quality.score),
+                                            score: Some(*presence.quality.score),
                                         });
                                 },
                             );
@@ -112,7 +112,7 @@ impl HardwareActor {
                                     captures_count_clone.fetch_add(1, Ordering::Relaxed);
 
                                     let completed = CompletedCapture {
-                                        quality: quality.score,
+                                        quality: *quality.score,
                                         width: WIDTH,
                                         height: HEIGHT,
                                         image_base64: image_base64.clone(),
@@ -121,7 +121,7 @@ impl HardwareActor {
                                     };
 
                                     let _ = event_tx.blocking_send(ServerEvent::Completed {
-                                        quality: quality.score,
+                                        quality: *quality.score,
                                         width: WIDTH,
                                         height: HEIGHT,
                                         image_base64,

@@ -1,8 +1,14 @@
+pub mod frame;
+pub mod protocol;
 pub mod transport;
 
+pub use frame::{FrameAssembler, FrameError, parse_raw_frame};
+pub use protocol::{
+    CommandOpcode, ProtocolError, ResponsePacket, UsbCommand, parse_response_packet,
+};
 pub use transport::{MockScenario, MockTransport, RusbTransport, TransportError, UsbTransport};
 
-use fs80h_core::{DeviceInfo, FRAME_LEN, FingerprintScanner, RawFrame};
+use fs80h_core::{DeviceInfo, FingerprintScanner, RawFrame};
 use futronic_fs80h_rs as native;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -17,6 +23,12 @@ pub enum DriverError {
 
     #[error(transparent)]
     Transport(#[from] TransportError),
+
+    #[error(transparent)]
+    Frame(#[from] frame::FrameError),
+
+    #[error(transparent)]
+    Protocol(#[from] protocol::ProtocolError),
 
     #[error("timed out waiting for finger on scanner after {0:?}")]
     Timeout(Duration),
@@ -141,36 +153,27 @@ impl<T: UsbTransport> Device<T> {
     /// Captures a biometric frame using calibrated exposure dose.
     pub fn capture_with_dose(&mut self, dose: u8) -> Result<RawFrame, DriverError> {
         // Trigger bulk command opcode GET_IMAGE_VARIABLE_DOSE (0x6A)
+        let cmd = UsbCommand::new(CommandOpcode::GetImageVariableDose, Some(dose));
         self.transport
-            .write_bulk(0x01, &[0x6A, dose], Duration::from_millis(2500))?;
+            .write_bulk(0x01, &cmd.to_bytes(), Duration::from_millis(2500))?;
 
-        let mut frame_bytes = vec![0u8; FRAME_LEN];
-        let mut offset = 0;
+        let mut assembler = FrameAssembler::new();
         let chunk_timeout = Duration::from_millis(1500);
+        let mut chunk_buf = [0u8; 4096];
 
-        while offset < FRAME_LEN {
-            let chunk_size = (FRAME_LEN - offset).min(4096);
-            let n = self.transport.read_bulk(
-                0x82,
-                &mut frame_bytes[offset..offset + chunk_size],
-                chunk_timeout,
-            )?;
+        while !assembler.is_complete() {
+            let n = self
+                .transport
+                .read_bulk(0x82, &mut chunk_buf, chunk_timeout)?;
             if n == 0 {
                 break;
             }
-            offset += n;
+            if let Some(valid_slice) = chunk_buf.get(..n) {
+                assembler.append_chunk(valid_slice)?;
+            }
         }
 
-        if offset != FRAME_LEN {
-            return Err(DriverError::Core(fs80h_core::CoreError::InvalidFrame {
-                width: 320,
-                height: 480,
-                dpi: 500,
-                len: offset,
-            }));
-        }
-
-        Ok(RawFrame::new(frame_bytes)?)
+        Ok(assembler.finalize()?)
     }
 
     /// Waits for finger presence on the sensor surface with contact stabilization.
@@ -237,6 +240,7 @@ impl FutronicScanner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fs80h_core::FRAME_LEN;
 
     #[test]
     fn test_mock_device_capture_match() {

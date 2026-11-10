@@ -96,6 +96,8 @@ fn map_driver_error(err: DriverError) -> CliError {
         }
         DriverError::Transport(t) => CliError::Hardware(t.to_string()),
         DriverError::Core(core_err) => CliError::Operational(core_err.to_string()),
+        DriverError::Frame(frame_err) => CliError::Operational(frame_err.to_string()),
+        DriverError::Protocol(proto_err) => CliError::Hardware(proto_err.to_string()),
     }
 }
 
@@ -295,7 +297,7 @@ fn handle_capture(
     // Rejection due to insufficient biometric quality (Exit code 4)
     if !quality.accepted || (args.min_quality > 0 && quality.score < args.min_quality) {
         return Err(CliError::QualityRejected {
-            score: quality.score,
+            score: *quality.score,
             min_quality: args.min_quality,
         });
     }
@@ -762,7 +764,7 @@ fn handle_verify(
 
             if args.exit_code && !threshold_met {
                 return Err(CliError::Mismatch {
-                    score: out.deterministic.score,
+                    score: *out.deterministic.score,
                     threshold: args.threshold,
                 });
             }
@@ -873,7 +875,7 @@ fn handle_verify(
             }
 
             if args.exit_code && !report.threshold_met {
-                let best_score = report.best_match.as_ref().map(|b| b.score).unwrap_or(0.0);
+                let best_score = report.best_match.as_ref().map(|b| *b.score).unwrap_or(0.0);
                 return Err(CliError::Mismatch {
                     score: best_score,
                     threshold: args.threshold,
@@ -925,7 +927,7 @@ fn handle_verify(
 
                 if args.exit_code && !threshold_met {
                     return Err(CliError::Mismatch {
-                        score: out.deterministic.score,
+                        score: *out.deterministic.score,
                         threshold: args.threshold,
                     });
                 }

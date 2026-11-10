@@ -1,9 +1,11 @@
-use crate::domain::{HEIGHT, RawFrame, WIDTH};
+use crate::domain::{HEIGHT, QualityScore, RawFrame, WIDTH};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct QualityReport {
-    pub score: u8,
+    pub score: QualityScore,
     pub accepted: bool,
     pub mean_local_variance: f64,
     pub saturated_ratio: f64,
@@ -11,35 +13,81 @@ pub struct QualityReport {
 }
 
 pub fn evaluate_quality(frame: &RawFrame) -> QualityReport {
-    let mut variance_sum = 0.0;
-    let mut blocks = 0usize;
-    for by in (0..HEIGHT as usize).step_by(16) {
-        for bx in (0..WIDTH as usize).step_by(16) {
-            let mut sum = 0.0;
-            let mut sum_sq = 0.0;
-            let mut n = 0.0;
-            for y in by..(by + 16).min(HEIGHT as usize) {
-                for x in bx..(bx + 16).min(WIDTH as usize) {
-                    let p = frame.pixels()[y * WIDTH as usize + x] as f64;
-                    sum += p;
-                    sum_sq += p * p;
-                    n += 1.0;
+    let pixels = frame.pixels();
+    let block_row_count = (HEIGHT as usize) / 16;
+    let block_col_count = (WIDTH as usize) / 16;
+
+    #[cfg(feature = "parallel")]
+    let (variance_sum, blocks) = (0..block_row_count)
+        .into_par_iter()
+        .flat_map_iter(|by_idx| {
+            let by = by_idx * 16;
+            (0..block_col_count).map(move |bx_idx| {
+                let bx = bx_idx * 16;
+                let mut sum = 0.0f64;
+                let mut sum_sq = 0.0f64;
+                let n = 256.0f64;
+                for y in by..by + 16 {
+                    let row_start = y * (WIDTH as usize) + bx;
+                    if let Some(row) = pixels.get(row_start..row_start + 16) {
+                        for &p in row {
+                            let p_f = p as f64;
+                            sum += p_f;
+                            sum_sq += p_f * p_f;
+                        }
+                    }
                 }
+                (sum_sq / n - (sum / n).powi(2)).max(0.0)
+            })
+        })
+        .fold(|| (0.0f64, 0usize), |(s, c), v| (s + v, c + 1))
+        .reduce(|| (0.0f64, 0usize), |(s1, c1), (s2, c2)| (s1 + s2, c1 + c2));
+
+    #[cfg(not(feature = "parallel"))]
+    let (variance_sum, blocks) = {
+        let mut variance_sum = 0.0f64;
+        let mut blocks = 0usize;
+        for by_idx in 0..block_row_count {
+            let by = by_idx * 16;
+            for bx_idx in 0..block_col_count {
+                let bx = bx_idx * 16;
+                let mut sum = 0.0f64;
+                let mut sum_sq = 0.0f64;
+                let n = 256.0f64;
+                for y in by..by + 16 {
+                    let row_start = y * (WIDTH as usize) + bx;
+                    if let Some(row) = pixels.get(row_start..row_start + 16) {
+                        for &p in row {
+                            let p_f = p as f64;
+                            sum += p_f;
+                            sum_sq += p_f * p_f;
+                        }
+                    }
+                }
+                variance_sum += (sum_sq / n - (sum / n).powi(2)).max(0.0);
+                blocks += 1;
             }
-            variance_sum += (sum_sq / n - (sum / n).powi(2)).max(0.0);
-            blocks += 1;
         }
-    }
-    let variance = variance_sum / blocks as f64;
-    let saturated = frame
-        .pixels()
-        .iter()
-        .filter(|&&p| p <= 4 || p >= 251)
-        .count() as f64
-        / frame.pixels().len() as f64;
+        (variance_sum, blocks)
+    };
+
+    let variance = if blocks == 0 {
+        0.0
+    } else {
+        variance_sum / blocks as f64
+    };
+
+    #[cfg(feature = "parallel")]
+    let saturated_count = pixels.par_iter().filter(|&&p| p <= 4 || p >= 251).count();
+
+    #[cfg(not(feature = "parallel"))]
+    let saturated_count = pixels.iter().filter(|&&p| p <= 4 || p >= 251).count();
+
+    let saturated = saturated_count as f64 / pixels.len() as f64;
     let contrast_score = (variance / 500.0 * 100.0).clamp(0.0, 100.0);
     let saturation_score = ((1.0 - saturated / 0.35) * 100.0).clamp(0.0, 100.0);
-    let score = (contrast_score * 0.7 + saturation_score * 0.3).round() as u8;
+    let score_val = (contrast_score * 0.7 + saturation_score * 0.3).round() as u8;
+    let score = QualityScore::new(score_val).unwrap_or(QualityScore::new(0).unwrap());
     let mut warnings = Vec::new();
     if variance < 80.0 {
         warnings.push("low local contrast; recapture with better contact".into());

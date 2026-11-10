@@ -1,0 +1,25 @@
+[package]
+name = "fs80h-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+fs80h-core = { path = "../crates/fs80h-core" }
+fs80h-driver = { path = "../crates/fs80h-driver" }
+
+[[bin]]
+name = "fuzz_target_frame"
+path = "fuzz_targets/fuzz_target_frame.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_target_template"
+path = "fuzz_targets/fuzz_target_template.rs"
+test = false
+doc = false
