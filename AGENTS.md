@@ -8,9 +8,11 @@ This Rust 2024 workspace contains three crates:
 - `crates/fs80h-driver/`: Futronic USB-driver integration.
 - `crates/fs80h-cli/`: the `fs80hctl` command-line binary and command parsing.
 
-Workspace-level integration tests live in `tests/`; use `tests/fixtures/` only for approved deterministic synthetic images. Supporting shell workflows are in `scripts/`, user documentation is in `docs/`, and the Unix manpage is `man/fs80hctl.1`.
+Integration tests and approved deterministic fixtures are in `tests/`; fuzz targets are in `fuzz/`. Scripts are in `scripts/`, docs in `docs/`, the manpage in `man/fs80hctl.1`, and Linux assets in `debian/`, `systemd/`, and `udev/`.
 
-Keep `fs80h-core` free of USB and native hardware dependencies. Put hardware-facing behavior in the driver and user-facing command wiring in the CLI.
+Keep `fs80h-core` free of USB and native hardware dependencies; put hardware behavior in the driver and command wiring in the CLI.
+
+Nested `AGENTS.md` files take precedence.
 
 ## Build, Test, and Development Commands
 
@@ -26,11 +28,13 @@ cargo run -p fs80h-cli -- --help         # Run the CLI locally
 ./scripts/check-clean-workspace.sh      # Detect biometric-data leaks
 ```
 
-Use `cargo build --release --workspace` for release builds. Physical scanner testing is opt-in: consult `TESTING.md` and run `./scripts/test-physical.sh` only with authorized hardware and handling procedures.
+Use `cargo build --release --workspace` for releases. Physical tests require authorization; follow `TESTING.md` before running `./scripts/test-physical.sh`.
+
+Before handoff, run checks; code changes require formatting, Clippy, tests, docs, and the cleanliness check. Preserve unrelated worktree changes; never discard files or use destructive Git commands without authorization.
 
 ## Coding Style & Naming Conventions
 
-Use idiomatic Rust and let `rustfmt` determine formatting (four-space indentation). Follow existing names: `snake_case` for functions, modules, files, and test functions; `PascalCase` for types; `SCREAMING_SNAKE_CASE` for constants. Keep public APIs and errors explicit, avoid hardware logic in core, and add `--json` support for new CLI commands that produce structured output.
+Use idiomatic Rust and let `rustfmt` determine formatting (four-space indentation). Follow existing names: `snake_case` for functions, modules, files, and test functions; `PascalCase` for types; `SCREAMING_SNAKE_CASE` for constants. Keep public APIs and errors explicit, avoid hardware logic in core, and ensure CLI commands offering structured output support the global `--json` flag.
 
 ## Testing Guidelines
 
