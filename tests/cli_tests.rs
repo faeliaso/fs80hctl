@@ -67,7 +67,10 @@ fn test_cli_manual() {
 
 #[test]
 fn test_cli_doctor_text() {
-    let output = bin().arg("doctor").output().expect("failed to execute");
+    let output = bin()
+        .args(["--mock", "match", "doctor"])
+        .output()
+        .expect("failed to execute");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("fs80hctl Diagnostics"));
@@ -78,7 +81,7 @@ fn test_cli_doctor_text() {
 #[test]
 fn test_cli_doctor_json() {
     let output = bin()
-        .args(["--json", "doctor"])
+        .args(["--mock", "match", "--json", "doctor"])
         .output()
         .expect("failed to execute");
     assert!(output.status.success());
@@ -479,7 +482,7 @@ fn test_cli_verify_gallery_text_and_json() {
 #[test]
 fn test_cli_format_json_and_clean_stdout_doctor() {
     let output = bin()
-        .args(["--format", "json", "doctor"])
+        .args(["--mock", "match", "--format", "json", "doctor"])
         .output()
         .expect("doctor format json");
     assert!(output.status.success());
@@ -515,7 +518,7 @@ fn test_cli_doctor_output_redirection() {
     let stderr_target = std::fs::File::create(&debug_file).expect("create debug file");
 
     let status = bin()
-        .args(["-vv", "--format", "json", "doctor"])
+        .args(["--mock", "match", "-vv", "--format", "json", "doctor"])
         .stdout(stdout_target)
         .stderr(stderr_target)
         .status()
