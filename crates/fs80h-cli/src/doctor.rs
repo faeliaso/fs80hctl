@@ -224,17 +224,13 @@ fn check_udev_rules() -> DoctorCheck {
             if let Ok(entries) = std::fs::read_dir(path) {
                 for entry in entries.flatten() {
                     let file_path = entry.path();
-                    if let Some(ext) = file_path.extension() {
-                        if ext == "rules" {
-                            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                                if content.contains("1491")
-                                    || content.to_lowercase().contains("futronic")
-                                {
-                                    found_rule_file = Some(file_path.display().to_string());
-                                    break;
-                                }
-                            }
-                        }
+                    if let Some(ext) = file_path.extension()
+                        && ext == "rules"
+                        && let Ok(content) = std::fs::read_to_string(&file_path)
+                        && (content.contains("1491") || content.to_lowercase().contains("futronic"))
+                    {
+                        found_rule_file = Some(file_path.display().to_string());
+                        break;
                     }
                 }
             }

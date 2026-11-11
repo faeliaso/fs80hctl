@@ -72,18 +72,16 @@ fn setup_listener(
     config: &DaemonConfig,
 ) -> Result<UnixListener, Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(target_os = "linux")]
-    if config.systemd_activation {
-        if let Ok(fds) = std::env::var("LISTEN_FDS") {
-            if let Ok(count) = fds.parse::<i32>() {
-                if count > 0 {
-                    use std::os::unix::io::FromRawFd;
-                    tracing::info!("inheriting socket from systemd activation (fd: 3)");
-                    let std_listener = unsafe { std::os::unix::net::UnixListener::from_raw_fd(3) };
-                    std_listener.set_nonblocking(true)?;
-                    return Ok(UnixListener::from_std(std_listener)?);
-                }
-            }
-        }
+    if config.systemd_activation
+        && let Ok(fds) = std::env::var("LISTEN_FDS")
+        && let Ok(count) = fds.parse::<i32>()
+        && count > 0
+    {
+        use std::os::unix::io::FromRawFd;
+        tracing::info!("inheriting socket from systemd activation (fd: 3)");
+        let std_listener = unsafe { std::os::unix::net::UnixListener::from_raw_fd(3) };
+        std_listener.set_nonblocking(true)?;
+        return Ok(UnixListener::from_std(std_listener)?);
     }
 
     let socket_path = &config.socket_path;
