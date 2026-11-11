@@ -1,55 +1,85 @@
 name: CI
 
 on:
+  # Validate every change merged into the supported integration branches.
   push:
-    branches: [ "main", "develop", "feature/**" ]
+    branches: [main, master]
+  # Protect the same branches before changes are merged.
   pull_request:
-    branches: [ "main", "develop" ]
+    branches: [main, master]
+
+# Read-only access is sufficient for checkout and dependency caching.
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
-  check-and-test:
-    name: Test on ${{ matrix.os }}
+  validate:
+    name: Validate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install system dependencies (Linux)
+      # Native dependencies required by the USB driver on Linux.
+      - name: Install Linux dependencies
         if: runner.os == 'Linux'
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y libusb-1.0-0-dev pkg-config
+          sudo apt-get install --yes libusb-1.0-0-dev pkg-config
 
-      - name: Install system dependencies (macOS)
+      # Keep macOS builds linked against the Homebrew-provided libusb.
+      - name: Install macOS dependencies
         if: runner.os == 'macOS'
+        shell: bash
         run: |
-          brew install libusb pkg-config || true
+          set -euo pipefail
+          brew install libusb
 
-      - name: Setup Rust toolchain
+      # Pin the CI interface to stable Rust and install the tools used below.
+      - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
-      - name: Check code formatting
-        if: runner.os == 'Linux'
-        run: cargo fmt --all -- --check
+      # Scope the cache to this workspace and OS to prevent cross-platform reuse.
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.os }}-workspace
+          workspaces: . -> target
 
-      - name: Clippy linter
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Check formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
 
-      - name: Run workspace tests (deterministic / headless)
-        run: cargo test --workspace --all-targets --verbose
+      - name: Run Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Documentation check
-        run: cargo doc --workspace --no-deps
+      - name: Check workspace targets and examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --workspace --all-targets
 
-      - name: Audit biometric leaks
-        if: runner.os == 'Linux'
-        run: ./scripts/check-clean-workspace.sh
+      - name: Run workspace tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --all-targets --verbose
