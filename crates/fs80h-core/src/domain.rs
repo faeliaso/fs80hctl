@@ -333,6 +333,24 @@ impl GrayscaleImage {
     pub fn as_slice_2d(&self) -> &[u8] {
         &self.pixels
     }
+
+    /// Loads an 8-bit grayscale TIFF without imposing FS80H frame dimensions.
+    /// This is intended for offline analysis datasets; scanner capture remains
+    /// represented by the dimension-validated [`RawFrame`].
+    pub fn from_tiff(path: impl AsRef<Path>) -> Result<Self, CoreError> {
+        let file = fs::File::open(path)?;
+        let mut decoder = tiff::decoder::Decoder::new(file)?;
+        let (width, height) = decoder.dimensions()?;
+        let pixels = match decoder.read_image()? {
+            tiff::decoder::DecodingResult::U8(pixels) => pixels,
+            _ => {
+                return Err(CoreError::UnsupportedFormat(
+                    "expected 8-bit grayscale TIFF".into(),
+                ));
+            }
+        };
+        Self::new(width as usize, height as usize, pixels)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

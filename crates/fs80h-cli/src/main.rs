@@ -1,16 +1,24 @@
 mod cli;
 mod daemon;
 mod doctor;
+mod tool;
 
 use clap::Parser;
 use cli::{
     CaptureArgs, Cli, CliError, CliExitCode, Command, ConvertArgs, DeviceCommand, EnrollArgs,
-    InspectArgs, MANUAL_TEXT, OutputFormat, Selection, VerifyArgs, VerifyOutput,
+    ForensicAnnotateArgs, ForensicCommand, ForensicCompareArgs, ForensicLivenessArgs,
+    ForensicReportArgs, InspectArgs, MANUAL_TEXT, OutputFormat, Selection, ToolBenchCommand,
+    ToolBenchIoArgs, ToolBenchMatchingArgs, ToolCommand, ToolConvertArgs, ToolEnhanceArgs,
+    ToolImageFormat, VerifyArgs, VerifyOutput,
 };
 use doctor::run_doctor_with_mock;
 use fs80h_core::{
-    CaptureManifest, DPI, DerivedManifest, FRAME_LEN, FingerprintScanner, HEIGHT, ImageFormat,
-    Manifest, RawFrame, WIDTH, compare_frames, compare_probe_to_gallery, evaluate_quality,
+    CaptureManifest, DPI, DerivedManifest, FRAME_LEN, FingerprintScanner, GrayscaleImage, HEIGHT,
+    ImageFormat, MIN_FORENSIC_PAIR_SUPPORT, Manifest, RawFrame, WIDTH, analyze_liveness,
+    annotate_image, benchmark_matching, compare_frames, compare_images_image,
+    compare_minutiae_sets, compare_probe_to_gallery, create_forensic_report, decode_wsq,
+    encode_wsq, enhance_gabor, evaluate_quality, extract_skeleton_minutiae,
+    match_minutiae_pairs_aligned,
 };
 use fs80h_driver::{
     DriverError, FutronicScanner, MockScenario, MockTransport, TransportError,
@@ -155,6 +163,22 @@ fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
         Command::Verify(args) => {
             handle_verify(args, format, cli.mock)?;
         }
+
+        Command::Forensic { command } => match command {
+            ForensicCommand::Annotate(args) => handle_forensic_annotate(args, format)?,
+            ForensicCommand::Compare(args) => handle_forensic_compare(args)?,
+            ForensicCommand::Liveness(args) => handle_forensic_liveness(args, format)?,
+            ForensicCommand::Report(args) => handle_forensic_report(args)?,
+        },
+
+        Command::Tool { command } => match command {
+            ToolCommand::Enhance(args) => handle_tool_enhance(args, format)?,
+            ToolCommand::Convert(args) => handle_tool_convert(args, format)?,
+            ToolCommand::Bench { command } => match command {
+                ToolBenchCommand::Matching(args) => handle_tool_bench_matching(args, format)?,
+                ToolBenchCommand::Io(args) => handle_tool_bench_io(args, format)?,
+            },
+        },
 
         Command::Doctor => {
             let report = run_doctor_with_mock(cli.mock);
@@ -941,6 +965,298 @@ fn handle_verify(
     }
 
     Ok(())
+}
+
+fn handle_forensic_annotate(
+    args: &ForensicAnnotateArgs,
+    format: OutputFormat,
+) -> Result<(), CliError> {
+    let image = load_forensic_image(&args.input)?;
+    let minutiae = extract_skeleton_minutiae(&image);
+    annotate_image(&image, &minutiae)
+        .save(&args.output)
+        .map_err(|e| CliError::Operational(format!("failed to save annotation PNG: {e}")))?;
+    if format == OutputFormat::Json {
+        let normalized: Vec<_> = minutiae
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "x": m.x / image.width() as f32,
+                    "y": m.y / image.height() as f32,
+                    "type": m.kind,
+                    "angle_deg": m.angle_deg,
+                    "quality": m.quality,
+                })
+            })
+            .collect();
+        print_json(&normalized)?;
+    } else {
+        println!(
+            "Annotated {} minutiae and wrote {}",
+            minutiae.len(),
+            args.output.display()
+        );
+    }
+    Ok(())
+}
+
+fn load_forensic_image(path: &std::path::Path) -> Result<GrayscaleImage, CliError> {
+    let is_tiff = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("tif") || e.eq_ignore_ascii_case("tiff"));
+    if is_tiff {
+        GrayscaleImage::from_tiff(path)
+    } else {
+        RawFrame::from_file(path).map(RawFrame::into_image)
+    }
+    .map_err(|e| CliError::Operational(format!("failed to load forensic input: {e}")))
+}
+
+fn handle_forensic_compare(args: &ForensicCompareArgs) -> Result<(), CliError> {
+    if !args.threshold.is_finite() || !(0.0..=100.0).contains(&args.threshold) {
+        return Err(CliError::Operational(
+            "--threshold must be between 0 and 100".into(),
+        ));
+    }
+    let probe = load_forensic_image(&args.probe)?;
+    let reference = load_forensic_image(&args.reference)?;
+    let probe_minutiae = extract_skeleton_minutiae(&probe);
+    let reference_minutiae = extract_skeleton_minutiae(&reference);
+    let pairs = match_minutiae_pairs_aligned(&probe_minutiae, &reference_minutiae);
+    let mut report = compare_minutiae_sets(&probe_minutiae, &reference_minutiae);
+    report.matched_minutiae = pairs.len();
+    let raw_score = (pairs.len() as f32
+        / probe_minutiae.len().max(reference_minutiae.len()).max(1) as f32
+        * 100.0)
+        .clamp(0.0, 100.0);
+    let sufficient_correspondences = pairs.len() >= MIN_FORENSIC_PAIR_SUPPORT;
+    report.score = fs80h_core::MatchScore::new(if sufficient_correspondences {
+        raw_score
+    } else {
+        0.0
+    })
+    .unwrap();
+    compare_images_image(
+        &probe,
+        &reference,
+        &probe_minutiae,
+        &reference_minutiae,
+        &pairs,
+    )
+    .save(&args.output)
+    .map_err(|e| CliError::Operational(format!("failed to save comparison PNG: {e}")))?;
+    let summary = serde_json::json!({
+        "score": report.score.as_f32(),
+        "raw_score": raw_score,
+        "paired_minutiae_count": pairs.len(),
+        "minimum_pair_support": MIN_FORENSIC_PAIR_SUPPORT,
+        "sufficient_correspondences": sufficient_correspondences,
+        "probe_minutiae_total": probe_minutiae.len(),
+        "reference_minutiae_total": reference_minutiae.len(),
+        "output": args.output,
+        "threshold_met": report.score >= args.threshold,
+    });
+    print_json(&summary)?;
+    if report.score < args.threshold {
+        return Err(CliError::Mismatch {
+            score: report.score.as_f32(),
+            threshold: args.threshold,
+        });
+    }
+    Ok(())
+}
+
+fn handle_forensic_liveness(
+    args: &ForensicLivenessArgs,
+    format: OutputFormat,
+) -> Result<(), CliError> {
+    let frame = RawFrame::from_file(&args.input)
+        .map_err(|e| CliError::Operational(format!("failed to load forensic input: {e}")))?;
+    let report = analyze_liveness(&frame);
+    match format {
+        OutputFormat::Json => print_json(&report)?,
+        OutputFormat::Text | OutputFormat::Raw => println!(
+            "Liveness score: {}/100 ({:?})",
+            report.liveness_score, report.classification
+        ),
+    }
+    if report.liveness_score < 65 {
+        return Err(CliError::LivenessSpoof {
+            score: report.liveness_score,
+            threshold: 65,
+        });
+    }
+    Ok(())
+}
+
+fn handle_forensic_report(args: &ForensicReportArgs) -> Result<(), CliError> {
+    let frame = RawFrame::from_file(&args.image)
+        .map_err(|e| CliError::Operational(format!("failed to load forensic input: {e}")))?;
+    // Report is deliberately JSON-only, independent of the global display mode.
+    print_json(&create_forensic_report(&args.image, &frame))
+}
+
+fn tool_format_from_path(path: &std::path::Path) -> Result<ToolImageFormat, CliError> {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("raw") | Some("dat") => Ok(ToolImageFormat::Raw),
+        Some("png") => Ok(ToolImageFormat::Png),
+        Some("wsq") => Ok(ToolImageFormat::Wsq),
+        _ => Err(CliError::Operational(format!(
+            "cannot infer tool image format from {}",
+            path.display()
+        ))),
+    }
+}
+
+fn load_tool_frame(path: &std::path::Path, format: ToolImageFormat) -> Result<RawFrame, CliError> {
+    match format {
+        ToolImageFormat::Raw | ToolImageFormat::Png => RawFrame::from_file(path).map_err(|error| {
+            CliError::Operational(format!("failed to load {}: {error}", path.display()))
+        }),
+        ToolImageFormat::Wsq => decode_wsq(&std::fs::read(path).map_err(|error| {
+            CliError::Operational(format!("failed to read {}: {error}", path.display()))
+        })?)
+        .map_err(|error| CliError::Operational(format!("failed to decode WSQ: {error}"))),
+    }
+}
+
+fn write_tool_frame(
+    frame: &RawFrame,
+    path: &std::path::Path,
+    format: ToolImageFormat,
+    bitrate: f32,
+    dpi: u16,
+) -> Result<(), CliError> {
+    match format {
+        ToolImageFormat::Raw => frame.write_raw_bytes(path).map_err(|error| {
+            CliError::Operational(format!("failed to write {}: {error}", path.display()))
+        }),
+        ToolImageFormat::Png => frame.write_png(path).map_err(|error| {
+            CliError::Operational(format!("failed to write {}: {error}", path.display()))
+        }),
+        ToolImageFormat::Wsq => {
+            let encoded = encode_wsq(frame, bitrate, dpi)
+                .map_err(|error| CliError::Operational(format!("failed to encode WSQ: {error}")))?;
+            std::fs::write(path, encoded).map_err(|error| {
+                CliError::Operational(format!("failed to write {}: {error}", path.display()))
+            })
+        }
+    }
+}
+
+fn handle_tool_enhance(args: &ToolEnhanceArgs, format: OutputFormat) -> Result<(), CliError> {
+    let frame = RawFrame::from_file(&args.input).map_err(|error| {
+        CliError::Operational(format!("failed to load enhancement input: {error}"))
+    })?;
+    let enhanced = enhance_gabor(&frame);
+    enhanced
+        .write_png(&args.output)
+        .map_err(|error| CliError::Operational(format!("failed to write enhanced PNG: {error}")))?;
+    let value = serde_json::json!({ "input": args.input, "output": args.output, "quality_before": evaluate_quality(&frame), "quality_after": evaluate_quality(&enhanced), "algorithm": "local_orientation_gabor_9x9" });
+    match format {
+        OutputFormat::Json => print_json(&value),
+        OutputFormat::Text | OutputFormat::Raw => {
+            println!("Enhanced ridge image written to {}", args.output.display());
+            Ok(())
+        }
+    }
+}
+
+fn handle_tool_convert(args: &ToolConvertArgs, format: OutputFormat) -> Result<(), CliError> {
+    if !args.bitrate.is_finite() || args.bitrate <= 0.0 || args.dpi == 0 {
+        return Err(CliError::Operational(
+            "--bitrate and --dpi must be greater than zero".into(),
+        ));
+    }
+    let from = args.from.unwrap_or(tool_format_from_path(&args.input)?);
+    let to = args.to.unwrap_or(tool_format_from_path(&args.output)?);
+    let frame = load_tool_frame(&args.input, from)?;
+    write_tool_frame(&frame, &args.output, to, args.bitrate, args.dpi)?;
+    let value = serde_json::json!({ "input": args.input, "output": args.output, "from": format!("{:?}", from).to_lowercase(), "to": format!("{:?}", to).to_lowercase(), "width": WIDTH, "height": HEIGHT, "dpi": args.dpi, "bitrate": args.bitrate });
+    match format {
+        OutputFormat::Json => print_json(&value),
+        OutputFormat::Text | OutputFormat::Raw => {
+            println!(
+                "Converted {} to {}",
+                args.input.display(),
+                args.output.display()
+            );
+            Ok(())
+        }
+    }
+}
+
+fn fixture_probe_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("workspace root")
+        .join("tests/fixtures/probe.png")
+}
+
+fn handle_tool_bench_matching(
+    args: &ToolBenchMatchingArgs,
+    format: OutputFormat,
+) -> Result<(), CliError> {
+    if args.templates == 0 {
+        return Err(CliError::Operational(
+            "--templates must be greater than zero".into(),
+        ));
+    }
+    let frame = RawFrame::from_file(fixture_probe_path()).map_err(|error| {
+        CliError::Operational(format!("failed to load synthetic probe fixture: {error}"))
+    })?;
+    let started = std::time::Instant::now();
+    let matched_minutiae_total = benchmark_matching(&frame, args.templates);
+    let elapsed = started.elapsed();
+    let elapsed_ns = elapsed.as_nanos().max(1);
+    let value = serde_json::json!({ "benchmark": "matching", "templates": args.templates, "elapsed_ns": elapsed_ns, "matches_per_second": args.templates as f64 / elapsed.as_secs_f64(), "average_candidate_latency_ns": elapsed_ns / args.templates as u128, "cpu_cores_available": std::thread::available_parallelism().map_or(1, |count| count.get()), "matched_minutiae_total": matched_minutiae_total });
+    match format {
+        OutputFormat::Json => print_json(&value),
+        OutputFormat::Text | OutputFormat::Raw => {
+            println!(
+                "matching: {:.0} candidates/s",
+                value["matches_per_second"].as_f64().unwrap_or(0.0)
+            );
+            Ok(())
+        }
+    }
+}
+
+fn handle_tool_bench_io(args: &ToolBenchIoArgs, format: OutputFormat) -> Result<(), CliError> {
+    if args.iterations == 0 {
+        return Err(CliError::Operational(
+            "--iterations must be greater than zero".into(),
+        ));
+    }
+    let input = args.input.clone().unwrap_or_else(fixture_probe_path);
+    let started = std::time::Instant::now();
+    let mut bytes = 0usize;
+    for _ in 0..args.iterations {
+        let frame = RawFrame::from_file(&input).map_err(|error| {
+            CliError::Operational(format!("failed to decode benchmark image: {error}"))
+        })?;
+        bytes += frame.pixels().len();
+        let _ = frame.inverted();
+    }
+    let elapsed = started.elapsed();
+    let value = serde_json::json!({ "benchmark": "io", "iterations": args.iterations, "elapsed_ns": elapsed.as_nanos(), "frames_per_second": args.iterations as f64 / elapsed.as_secs_f64(), "bytes_processed": bytes, "input": input });
+    match format {
+        OutputFormat::Json => print_json(&value),
+        OutputFormat::Text | OutputFormat::Raw => {
+            println!(
+                "io: {:.0} frames/s",
+                value["frames_per_second"].as_f64().unwrap_or(0.0)
+            );
+            Ok(())
+        }
+    }
 }
 
 fn main() -> ExitCode {

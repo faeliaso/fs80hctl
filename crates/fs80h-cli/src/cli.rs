@@ -65,6 +65,8 @@ pub enum CliError {
     QualityRejected { score: u8, min_quality: u8 },
     #[error("hardware error: {0}")]
     Hardware(String),
+    #[error("presentation attack detected: liveness score {score} is below threshold {threshold}")]
+    LivenessSpoof { score: u8, threshold: u8 },
 }
 
 impl CliError {
@@ -75,6 +77,7 @@ impl CliError {
             Self::Timeout(_) => CliExitCode::CaptureTimeout,
             Self::QualityRejected { .. } => CliExitCode::QualityInsufficient,
             Self::Hardware(_) => CliExitCode::HardwareFailure,
+            Self::LivenessSpoof { .. } => CliExitCode::QualityInsufficient,
         }
     }
 }
@@ -142,6 +145,16 @@ pub enum Command {
     Inspect(InspectArgs),
     /// Compare biometric images (1:1 with reference file or 1:N with --gallery directory)
     Verify(VerifyArgs),
+    /// Headless forensic annotation, comparison, reporting, and static PAD screening
+    Forensic {
+        #[command(subcommand)]
+        command: ForensicCommand,
+    },
+    /// Image enhancement, interchange conversion, and deterministic benchmarks
+    Tool {
+        #[command(subcommand)]
+        command: ToolCommand,
+    },
     /// Run environment diagnostics (USB subsystem, device permissions, udev rules, groups, NFIQ2)
     Doctor,
     /// Run fast capture daemon listening on Unix Domain Socket
@@ -287,6 +300,115 @@ pub struct VerifyArgs {
     pub exit_code: bool,
 }
 
+#[derive(Subcommand, Debug)]
+pub enum ForensicCommand {
+    /// Extract and draw colored minutia markers over one fingerprint image
+    Annotate(ForensicAnnotateArgs),
+    /// Produce a side-by-side image with validated homologous minutia links
+    Compare(ForensicCompareArgs),
+    /// Run deterministic static presentation-attack screening
+    Liveness(ForensicLivenessArgs),
+    /// Emit an exclusively JSON forensic report
+    Report(ForensicReportArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ForensicAnnotateArgs {
+    #[arg(long)]
+    pub input: PathBuf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct ForensicCompareArgs {
+    #[arg(long)]
+    pub probe: PathBuf,
+    #[arg(long)]
+    pub reference: PathBuf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+    /// Minimum similarity score required to classify the comparison as a match
+    #[arg(long, default_value_t = 40.0)]
+    pub threshold: f32,
+}
+
+#[derive(Args, Debug)]
+pub struct ForensicLivenessArgs {
+    pub input: PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct ForensicReportArgs {
+    pub image: PathBuf,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ToolCommand {
+    /// Restore ridge contrast using local-orientation Gabor filtering
+    Enhance(ToolEnhanceArgs),
+    /// Convert between raw L8, PNG, and WSQ fingerprint formats
+    Convert(ToolConvertArgs),
+    /// Run synthetic matching or image-I/O benchmarks
+    Bench {
+        #[command(subcommand)]
+        command: ToolBenchCommand,
+    },
+}
+
+#[derive(Args, Debug)]
+pub struct ToolEnhanceArgs {
+    #[arg(long)]
+    pub input: PathBuf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ToolImageFormat {
+    Raw,
+    Png,
+    Wsq,
+}
+
+#[derive(Args, Debug)]
+pub struct ToolConvertArgs {
+    #[arg(long)]
+    pub input: PathBuf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+    #[arg(long)]
+    pub from: Option<ToolImageFormat>,
+    #[arg(long)]
+    pub to: Option<ToolImageFormat>,
+    #[arg(long, default_value_t = 0.75)]
+    pub bitrate: f32,
+    #[arg(long, default_value_t = 500)]
+    pub dpi: u16,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ToolBenchCommand {
+    /// Measure parallel synthetic 1:N matching throughput
+    Matching(ToolBenchMatchingArgs),
+    /// Measure frame decode and in-memory conversion throughput
+    Io(ToolBenchIoArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ToolBenchMatchingArgs {
+    #[arg(long, default_value_t = 50_000)]
+    pub templates: usize,
+}
+
+#[derive(Args, Debug)]
+pub struct ToolBenchIoArgs {
+    #[arg(long, default_value_t = 100)]
+    pub iterations: usize,
+    #[arg(long)]
+    pub input: Option<PathBuf>,
+}
+
 #[derive(Serialize, Debug)]
 pub struct VerifyOutput {
     pub deterministic: fs80h_core::MatchReport,
@@ -421,6 +543,26 @@ SUBCOMMANDS
             fs80hctl --format json verify probe.pgm ref.png
             fs80hctl verify probe.png --gallery ./enrolled_users/
 
+    forensic annotate|compare|liveness|report
+        Technical minutiae analysis for authorized evaluation, not identification, expert reporting,
+        or certified presentation-attack detection. Generated output is biometric-derived data and
+        must be protected outside the repository. See docs/FORENSIC_BIOMETRIC_VALIDATION.md.
+        Examples:
+            fs80hctl forensic annotate --input capture.png --output annotated.png
+            fs80hctl forensic compare --probe capture.png --reference reference.png --output comparison.png
+            fs80hctl --format json forensic liveness capture.png
+            fs80hctl forensic report capture.png
+        A comparison requires at least six geometrically consistent minutiae pairs before it can
+        report a non-zero score. Liveness is a static heuristic, not a certified PAD result.
+
+    tool enhance|convert|bench
+        Enhance a fingerprint image, convert RAW/PNG/WSQ files, or run deterministic synthetic
+        matching and image-I/O benchmarks.
+        Examples:
+            fs80hctl tool enhance --input capture.png --output enhanced.png
+            fs80hctl tool convert --input capture.png --output capture.wsq
+            fs80hctl --format json tool bench matching --templates 50000
+
     manual
         Display this technical reference manual on standard output.
 
@@ -440,6 +582,6 @@ EXIT CODES
     1   Operational error of syntax, invalid parameters, or unexpected failure.
     2   Biometric mismatch (comparison score below threshold).
     3   Timeout or finger not detected in capture window.
-    4   Biometric quality insufficient (rejected by quality evaluation).
+    4   Biometric quality insufficient or liveness score below the heuristic threshold.
     5   USB hardware failure (device not found, permission denied, I/O error).
 "#;

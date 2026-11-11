@@ -18,6 +18,8 @@
    - [convert (Forensic Transcoding)](#convert)
    - [inspect (Image & Custody Inspection)](#inspect)
    - [verify (1:1 and 1:N Biometric Comparison)](#verify)
+   - [forensic (Technical Analysis)](#forensic)
+   - [tool (Enhancement, Interchange, and Benchmarks)](#tool)
    - [serve (Daemon over Unix Domain Socket)](#serve)
    - [manual (Built-in Manual)](#manual)
 5. [Supported Formats](#supported-formats)
@@ -232,6 +234,48 @@ fs80hctl --json verify probe.png --gallery ./candidates/
 
 ---
 
+### `forensic`
+
+Provides technical minutiae analysis for authorized evaluation only. It does not
+make an identification decision, issue an expert report, or provide certified
+PAD. Inputs and generated annotations, reports, and comparisons are biometric
+data and must remain outside the checkout; follow
+[`FORENSIC_BIOMETRIC_VALIDATION.md`](FORENSIC_BIOMETRIC_VALIDATION.md).
+
+```bash
+# Annotate detected skeleton minutiae on a 320x480 supported image
+fs80hctl forensic annotate --input sample.png --output annotated.png
+
+# Write a visual comparison; score requires six corroborated minutiae pairs
+fs80hctl forensic compare --probe probe.png --reference reference.png --output comparison.png --threshold 40
+
+# JSON-only technical report and deterministic static texture screen
+fs80hctl forensic report sample.png
+fs80hctl --json forensic liveness sample.png
+```
+
+`forensic compare` exits with code `2` if its threshold or the minimum of six
+geometrically consistent pairs is not satisfied. `forensic liveness` exits with
+code `4` below score 65; it is a static heuristic, not ISO/IEC 30107-3 or LivDet
+validation.
+
+---
+
+### `tool`
+
+Provides local image processing and repeatable synthetic benchmarks. `convert`
+within this command supports `raw`, `png`, and `wsq` format names (or infers them
+from the file extensions); WSQ bitrate defaults to `0.75` and DPI to `500`.
+
+```bash
+fs80hctl tool enhance --input sample.png --output enhanced.png
+fs80hctl tool convert --input sample.png --output sample.wsq
+fs80hctl --json tool bench matching --templates 50000
+fs80hctl --json tool bench io --iterations 100 --input sample.png
+```
+
+---
+
 ### `manual`
 Displays the technical reference manual directly in the terminal standard output.
 
@@ -278,5 +322,5 @@ The manifest preserves:
 | `1` | Operational error: invalid parameters, syntax error, or general unexpected failure. |
 | `2` | Biometric mismatch (finger comparison score below threshold when `--exit-code` is passed). |
 | `3` | Capture timeout or finger not detected within acquisition window. |
-| `4` | Biometric quality insufficient (rejected by quality evaluation). |
+| `4` | Biometric quality insufficient or liveness score below the heuristic threshold. |
 | `5` | USB hardware failure (device not found, permission denied on `/dev/bus/usb`, I/O failure). |
