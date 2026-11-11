@@ -13,11 +13,11 @@ use cli::{
 };
 use doctor::run_doctor_with_mock;
 use fs80h_core::{
-    CaptureManifest, DPI, DerivedManifest, FRAME_LEN, FingerprintScanner, HEIGHT, ImageFormat,
-    Manifest, RawFrame, WIDTH, analyze_liveness, annotate_frame, benchmark_matching,
-    compare_frames, compare_frames_image, compare_minutiae_sets, compare_probe_to_gallery,
+    CaptureManifest, DPI, DerivedManifest, FRAME_LEN, FingerprintScanner, GrayscaleImage, HEIGHT,
+    ImageFormat, Manifest, RawFrame, WIDTH, analyze_liveness, annotate_image, benchmark_matching,
+    compare_frames, compare_images_image, compare_minutiae_sets, compare_probe_to_gallery,
     create_forensic_report, decode_wsq, encode_wsq, enhance_gabor, evaluate_quality,
-    extract_minutiae, match_minutiae_pairs,
+    extract_skeleton_minutiae, match_minutiae_pairs_aligned,
 };
 use fs80h_driver::{
     DriverError, FutronicScanner, MockScenario, MockTransport, TransportError,
@@ -970,10 +970,9 @@ fn handle_forensic_annotate(
     args: &ForensicAnnotateArgs,
     format: OutputFormat,
 ) -> Result<(), CliError> {
-    let frame = RawFrame::from_file(&args.input)
-        .map_err(|e| CliError::Operational(format!("failed to load forensic input: {e}")))?;
-    let minutiae = extract_minutiae(&frame);
-    annotate_frame(&frame, &minutiae)
+    let image = load_forensic_image(&args.input)?;
+    let minutiae = extract_skeleton_minutiae(&image);
+    annotate_image(&image, &minutiae)
         .save(&args.output)
         .map_err(|e| CliError::Operational(format!("failed to save annotation PNG: {e}")))?;
     if format == OutputFormat::Json {
@@ -981,8 +980,8 @@ fn handle_forensic_annotate(
             .iter()
             .map(|m| {
                 serde_json::json!({
-                    "x": m.x / WIDTH as f32,
-                    "y": m.y / HEIGHT as f32,
+                    "x": m.x / image.width() as f32,
+                    "y": m.y / image.height() as f32,
                     "type": m.kind,
                     "angle_deg": m.angle_deg,
                     "quality": m.quality,
@@ -1000,21 +999,39 @@ fn handle_forensic_annotate(
     Ok(())
 }
 
+fn load_forensic_image(path: &std::path::Path) -> Result<GrayscaleImage, CliError> {
+    let is_tiff = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("tif") || e.eq_ignore_ascii_case("tiff"));
+    if is_tiff {
+        GrayscaleImage::from_tiff(path)
+    } else {
+        RawFrame::from_file(path).map(RawFrame::into_image)
+    }
+    .map_err(|e| CliError::Operational(format!("failed to load forensic input: {e}")))
+}
+
 fn handle_forensic_compare(args: &ForensicCompareArgs) -> Result<(), CliError> {
     if !args.threshold.is_finite() || !(0.0..=100.0).contains(&args.threshold) {
         return Err(CliError::Operational(
             "--threshold must be between 0 and 100".into(),
         ));
     }
-    let probe = RawFrame::from_file(&args.probe)
-        .map_err(|e| CliError::Operational(format!("failed to load probe: {e}")))?;
-    let reference = RawFrame::from_file(&args.reference)
-        .map_err(|e| CliError::Operational(format!("failed to load reference: {e}")))?;
-    let probe_minutiae = extract_minutiae(&probe);
-    let reference_minutiae = extract_minutiae(&reference);
-    let pairs = match_minutiae_pairs(&probe_minutiae, &reference_minutiae);
-    let report = compare_minutiae_sets(&probe_minutiae, &reference_minutiae);
-    compare_frames_image(
+    let probe = load_forensic_image(&args.probe)?;
+    let reference = load_forensic_image(&args.reference)?;
+    let probe_minutiae = extract_skeleton_minutiae(&probe);
+    let reference_minutiae = extract_skeleton_minutiae(&reference);
+    let pairs = match_minutiae_pairs_aligned(&probe_minutiae, &reference_minutiae);
+    let mut report = compare_minutiae_sets(&probe_minutiae, &reference_minutiae);
+    report.matched_minutiae = pairs.len();
+    report.score = fs80h_core::MatchScore::new(
+        (pairs.len() as f32 / probe_minutiae.len().max(reference_minutiae.len()).max(1) as f32
+            * 100.0)
+            .clamp(0.0, 100.0),
+    )
+    .unwrap();
+    compare_images_image(
         &probe,
         &reference,
         &probe_minutiae,

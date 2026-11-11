@@ -112,6 +112,47 @@ pub fn match_minutiae_pairs(probe: &[Minutia], reference: &[Minutia]) -> Vec<(us
     pairs
 }
 
+/// Deterministically selects the translation hypothesis with the most
+/// geometrically consistent one-to-one pairs. This is the translation stage of
+/// robust alignment; callers can evolve it to full rotation-aware RANSAC.
+pub fn match_minutiae_pairs_aligned(
+    probe: &[Minutia],
+    reference: &[Minutia],
+) -> Vec<(usize, usize)> {
+    let mut best = Vec::new();
+    for anchor in probe {
+        for reference_anchor in reference {
+            if anchor.kind != reference_anchor.kind
+                || angle_distance(anchor.angle_deg, reference_anchor.angle_deg) > 25.0
+            {
+                continue;
+            }
+            let rotation = (reference_anchor.angle_deg - anchor.angle_deg).to_radians();
+            let (sin, cos) = rotation.sin_cos();
+            let rotated_x = anchor.x * cos - anchor.y * sin;
+            let rotated_y = anchor.x * sin + anchor.y * cos;
+            let (tx, ty) = (
+                reference_anchor.x - rotated_x,
+                reference_anchor.y - rotated_y,
+            );
+            let shifted: Vec<Minutia> = probe
+                .iter()
+                .map(|m| Minutia {
+                    x: m.x * cos - m.y * sin + tx,
+                    y: m.x * sin + m.y * cos + ty,
+                    angle_deg: (m.angle_deg + rotation.to_degrees()).rem_euclid(180.0),
+                    ..*m
+                })
+                .collect();
+            let pairs = match_minutiae_pairs(&shifted, reference);
+            if pairs.len() > best.len() {
+                best = pairs;
+            }
+        }
+    }
+    best
+}
+
 fn angle_distance(a: f32, b: f32) -> f32 {
     let d = (a - b).abs().rem_euclid(180.0);
     d.min(180.0 - d)

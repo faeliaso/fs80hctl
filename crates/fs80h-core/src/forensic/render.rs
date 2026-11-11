@@ -1,4 +1,4 @@
-use crate::domain::{HEIGHT, RawFrame, WIDTH};
+use crate::domain::{GrayscaleImage, RawFrame};
 use crate::matcher::{Minutia, MinutiaKind};
 use image::{Rgb, RgbImage};
 
@@ -66,8 +66,12 @@ pub fn draw_circle(image: &mut RgbImage, cx: i32, cy: i32, radius: i32, color: R
 }
 
 pub fn frame_to_rgb(frame: &RawFrame) -> RgbImage {
-    RgbImage::from_fn(WIDTH, HEIGHT, |x, y| {
-        let pixel = frame.pixels()[(y * WIDTH + x) as usize];
+    image_to_rgb(frame.as_image())
+}
+
+pub fn image_to_rgb(frame: &GrayscaleImage) -> RgbImage {
+    RgbImage::from_fn(frame.width() as u32, frame.height() as u32, |x, y| {
+        let pixel = frame.pixels()[y as usize * frame.width() + x as usize];
         Rgb([pixel, pixel, pixel])
     })
 }
@@ -96,7 +100,11 @@ pub fn draw_minutia(
 }
 
 pub fn annotate_frame(frame: &RawFrame, minutiae: &[Minutia]) -> RgbImage {
-    let mut image = frame_to_rgb(frame);
+    annotate_image(frame.as_image(), minutiae)
+}
+
+pub fn annotate_image(frame: &GrayscaleImage, minutiae: &[Minutia]) -> RgbImage {
+    let mut image = image_to_rgb(frame);
     for minutia in minutiae {
         draw_minutia(&mut image, minutia, 0, None);
     }
@@ -111,18 +119,44 @@ pub fn compare_frames_image(
     reference_minutiae: &[Minutia],
     pairs: &[(usize, usize)],
 ) -> RgbImage {
+    compare_images_image(
+        probe.as_image(),
+        reference.as_image(),
+        probe_minutiae,
+        reference_minutiae,
+        pairs,
+    )
+}
+
+/// Renders arbitrary grayscale images side-by-side. This keeps dataset image
+/// dimensions intact while using the same purely rasterized forensic markers.
+pub fn compare_images_image(
+    probe: &GrayscaleImage,
+    reference: &GrayscaleImage,
+    probe_minutiae: &[Minutia],
+    reference_minutiae: &[Minutia],
+    pairs: &[(usize, usize)],
+) -> RgbImage {
     const GAP: u32 = 24;
-    let mut output = RgbImage::from_pixel(WIDTH * 2 + GAP, HEIGHT, Rgb([245, 245, 245]));
-    let probe_image = frame_to_rgb(probe);
-    let reference_image = frame_to_rgb(reference);
-    for y in 0..HEIGHT {
-        for x in 0..WIDTH {
+    let left_width = probe.width() as u32;
+    let right_width = reference.width() as u32;
+    let height = probe.height().max(reference.height()) as u32;
+    let mut output =
+        RgbImage::from_pixel(left_width + right_width + GAP, height, Rgb([245, 245, 245]));
+    let probe_image = image_to_rgb(probe);
+    let reference_image = image_to_rgb(reference);
+    for y in 0..probe_image.height() {
+        for x in 0..probe_image.width() {
             output.put_pixel(x, y, *probe_image.get_pixel(x, y));
-            output.put_pixel(x + WIDTH + GAP, y, *reference_image.get_pixel(x, y));
         }
     }
-    for y in 0..HEIGHT {
-        output.put_pixel(WIDTH + GAP / 2, y, Rgb([80, 80, 80]));
+    for y in 0..reference_image.height() {
+        for x in 0..reference_image.width() {
+            output.put_pixel(x + left_width + GAP, y, *reference_image.get_pixel(x, y));
+        }
+    }
+    for y in 0..height {
+        output.put_pixel(left_width + GAP / 2, y, Rgb([80, 80, 80]));
     }
     let mut paired_probe = vec![false; probe_minutiae.len()];
     let mut paired_reference = vec![false; reference_minutiae.len()];
@@ -132,7 +166,7 @@ pub fn compare_frames_image(
             paired_reference[b] = true;
             let x0 = left.x.round() as i32;
             let y0 = left.y.round() as i32;
-            let x1 = right.x.round() as i32 + (WIDTH + GAP) as i32;
+            let x1 = right.x.round() as i32 + (left_width + GAP) as i32;
             let y1 = right.y.round() as i32;
             draw_line(&mut output, x0, y0, x1, y1, YELLOW);
         }
@@ -149,7 +183,7 @@ pub fn compare_frames_image(
         draw_minutia(
             &mut output,
             minutia,
-            (WIDTH + GAP) as i32,
+            (left_width + GAP) as i32,
             Some(if paired_reference[index] { GREEN } else { GREY }),
         );
     }
@@ -159,7 +193,7 @@ pub fn compare_frames_image(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::FRAME_LEN;
+    use crate::domain::{FRAME_LEN, HEIGHT, WIDTH};
 
     #[test]
     fn midpoint_circle_and_bresenham_change_rgb_pixels() {

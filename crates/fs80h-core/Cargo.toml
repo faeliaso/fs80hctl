@@ -38,3 +38,7 @@ path = "../../tests/forensic_tests.rs"
 name = "tool_tests"
 path = "../../tests/tool_tests.rs"
 
+[[test]]
+name = "minutiae_tests"
+path = "../../tests/minutiae_tests.rs"
+
