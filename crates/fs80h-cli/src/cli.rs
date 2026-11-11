@@ -128,6 +128,11 @@ impl Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Create, inspect, validate, convert, and transport fingerprint minutiae templates
+    Template {
+        #[command(subcommand)]
+        command: TemplateCommand,
+    },
     /// List connected Futronic fingerprint scanners via USB
     Devices,
     /// Device inspection and low-level diagnostic operations
@@ -161,6 +166,100 @@ pub enum Command {
     Serve(ServeArgs),
     /// Display technical manual and quick reference guide
     Manual,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TemplateCommand {
+    /// Extract operational minutiae from a fingerprint image and create an FMR template
+    Create(TemplateCreateArgs),
+    /// Validate a binary FMR template and show metadata only
+    Inspect(TemplateInspectArgs),
+    /// Validate a binary FMR template
+    Validate(TemplateInspectArgs),
+    /// Convert a template between explicit ISO/ANSI profiles
+    Convert(TemplateConvertArgs),
+    /// Encode or decode explicit RFC 4648 Base64 transport
+    Base64 {
+        #[command(subcommand)]
+        command: TemplateBase64Command,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TemplateBase64Command {
+    Encode(TemplateInspectArgs),
+    Decode(TemplateBase64DecodeArgs),
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum TemplateFormatArg {
+    Iso2005,
+    Iso2011,
+    Ansi2004,
+    Ansi2009,
+    Ansi2009Am1,
+}
+
+#[derive(Args, Debug)]
+pub struct TemplateCreateArgs {
+    pub image: PathBuf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+    #[arg(id = "template-format", long = "template-format", value_enum)]
+    pub format: TemplateFormatArg,
+    #[arg(long, default_value = "unknown")]
+    pub finger: TemplateFingerArg,
+    #[arg(long, default_value = "live-plain")]
+    pub impression: TemplateImpressionArg,
+}
+
+#[derive(Args, Debug)]
+pub struct TemplateInspectArgs {
+    pub input: PathBuf,
+    #[arg(id = "template-format", long = "template-format", value_enum)]
+    pub format: TemplateFormatArg,
+}
+#[derive(Args, Debug)]
+pub struct TemplateConvertArgs {
+    pub input: PathBuf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+    #[arg(long, value_enum)]
+    pub from: TemplateFormatArg,
+    #[arg(long, value_enum)]
+    pub to: TemplateFormatArg,
+}
+#[derive(Args, Debug)]
+pub struct TemplateBase64DecodeArgs {
+    pub input: PathBuf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+    #[arg(id = "template-format", long = "template-format", value_enum)]
+    pub format: TemplateFormatArg,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum TemplateFingerArg {
+    Unknown,
+    RightThumb,
+    RightIndex,
+    RightMiddle,
+    RightRing,
+    RightLittle,
+    LeftThumb,
+    LeftIndex,
+    LeftMiddle,
+    LeftRing,
+    LeftLittle,
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum TemplateImpressionArg {
+    LivePlain,
+    LiveRolled,
+    NonLivePlain,
+    NonLiveRolled,
+    LiveSwipe,
+    Unknown,
 }
 
 #[derive(Args, Debug)]
@@ -545,6 +644,18 @@ SUBCOMMANDS
             fs80hctl verify capture.png reference.tiff --threshold 45 --exit-code
             fs80hctl --format json verify probe.pgm ref.png
             fs80hctl verify probe.png --gallery ./enrolled_users/
+
+    template create|inspect|validate|convert|base64
+        Create, inspect, validate, convert, and explicitly Base64-transport fingerprint
+        minutiae templates. The template profile is always required through
+        --template-format: iso2005, iso2011, ansi2004, ansi2009, or ansi2009-am1.
+        Validation is structural; it does not certify AFIS matching accuracy, PAD/liveness,
+        or external-profile conformance.
+        Examples:
+            fs80hctl template create capture.png --template-format iso2011 --finger right-index --output right-index.fmr
+            fs80hctl template validate right-index.fmr --template-format iso2011
+            fs80hctl template base64 encode right-index.fmr --template-format iso2011 > right-index.b64
+            fs80hctl template base64 decode right-index.b64 --template-format iso2011 --output restored.fmr
 
     forensic annotate|compare|liveness|report
         Technical minutiae analysis for authorized evaluation, not identification, expert reporting,

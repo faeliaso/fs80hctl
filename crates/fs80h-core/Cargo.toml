@@ -11,6 +11,7 @@ parallel = ["dep:rayon"]
 [dependencies]
 chrono.workspace = true
 blake3.workspace = true
+base64.workspace = true
 hex.workspace = true
 image.workspace = true
 openjpeg2-pure-rs.workspace = true
@@ -43,4 +44,8 @@ path = "../../tests/tool_tests.rs"
 [[test]]
 name = "minutiae_tests"
 path = "../../tests/minutiae_tests.rs"
+
+[[test]]
+name = "template_tests"
+path = "../../tests/template_tests.rs"
 

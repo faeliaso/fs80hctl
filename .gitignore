@@ -1,6 +1,7 @@
 # Build and OS
 /target/
 .DS_Store
+.npp-md-preview.html
 
 # Bloqueio rigoroso de dados biométricos locais e manifestos:
 # Qualquer imagem PNG ou manifesto .meta.json gerado localmente é ignorado por padrão,

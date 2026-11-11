@@ -18,6 +18,7 @@
    - [convert (Forensic Transcoding)](#convert)
    - [inspect (Image & Custody Inspection)](#inspect)
    - [verify (1:1 and 1:N Biometric Comparison)](#verify)
+   - [template (Minutiae Templates)](#template)
    - [forensic (Technical Analysis)](#forensic)
    - [tool (Enhancement, Interchange, and Benchmarks)](#tool)
    - [serve (Daemon over Unix Domain Socket)](#serve)
@@ -258,6 +259,32 @@ fs80hctl verify probe.png --gallery ./candidates/ --threshold 40.0
 # 1:N Gallery Verification with JSON output
 fs80hctl --json verify probe.png --gallery ./candidates/
 ```
+
+---
+
+### `template`
+
+Creates and processes fingerprint-minutiae templates from supported captured images. The template format is always explicit, avoiding accidental treatment of Base64 text as binary data.
+
+```bash
+# Extract operational minutiae and serialize ISO/IEC 19794-2:2011.
+fs80hctl template create digital.png --template-format iso2011 \
+  --finger right-index --impression live-plain --output right-index.fmr
+
+# Validate and inspect only safe metadata/counts.
+fs80hctl template validate right-index.fmr --template-format iso2011
+fs80hctl template inspect right-index.fmr --template-format iso2011
+
+# Explicit Base64 transport round-trip.
+fs80hctl template base64 encode right-index.fmr --template-format iso2011 > right-index.b64
+fs80hctl template base64 decode right-index.b64 --template-format iso2011 --output restored.fmr
+cmp right-index.fmr restored.fmr
+
+# Convert only with an explicit source and target profile.
+fs80hctl template convert legacy.fmr --from ansi2004 --to iso2011 --output current.fmr
+```
+
+Supported values for `--template-format` are `iso2005`, `iso2011`, `ansi2004`, `ansi2009`, and `ansi2009-am1`. The implementation validates template structure and extracts operational minutiae; it is not a certified AFIS matcher, PAD/liveness system, or a substitute for external conformance testing.
 
 ---
 

@@ -10,7 +10,7 @@ cd "$REPO_ROOT"
 echo "==> Verificando arquivos versionados e staged no Git..."
 
 # Procura por qualquer .png ou .meta.json rastreado ou staged fora de tests/fixtures
-LEAKED_TRACKED=$(git ls-files | grep -E '\.(png|meta\.json)$' | grep -v '^tests/fixtures/' || true)
+LEAKED_TRACKED=$(git ls-files | grep -E '\.(png|meta\.json)$' | grep -v -E '^(tests/fixtures/|assets/fs80h\.png$)' || true)
 if [[ -n "$LEAKED_TRACKED" ]]; then
     echo "ERRO CRÍTICO: Arquivos biométricos ou manifestos rastreados detectados fora de tests/fixtures:" >&2
     echo "$LEAKED_TRACKED" >&2
@@ -18,7 +18,7 @@ if [[ -n "$LEAKED_TRACKED" ]]; then
 fi
 
 # Verifica também arquivos staged no índice
-LEAKED_STAGED=$(git diff --cached --name-only | grep -E '\.(png|meta\.json)$' | grep -v '^tests/fixtures/' || true)
+LEAKED_STAGED=$(git diff --cached --name-only | grep -E '\.(png|meta\.json)$' | grep -v -E '^(tests/fixtures/|assets/fs80h\.png$)' || true)
 if [[ -n "$LEAKED_STAGED" ]]; then
     echo "ERRO CRÍTICO: Arquivos biométricos ou manifestos staged para commit detectados fora de tests/fixtures:" >&2
     echo "$LEAKED_STAGED" >&2

@@ -65,6 +65,7 @@ Using a scanner in a technical workflow often requires separate tools for USB di
 
 - **Verification** — performs deterministic 1:1 comparison or 1:N gallery search.
 - **Forensic commands** — annotate minutiae, compare corroborated pairs, emit JSON reports, and run a static liveness heuristic for authorized technical evaluation.
+- **Minutiae templates** — create, inspect, validate, convert, and explicitly Base64-transport ISO/IEC 19794-2 and ANSI INCITS 378 template profiles.
 - **Structured output** — commands that produce structured results support the global `--json` option.
 
 ## Use cases
@@ -155,6 +156,7 @@ Use `cargo run -p fs80h-cli -- <command>` in place of `fs80hctl <command>` when 
 | `fs80hctl convert input.png --to tiff --output output.tiff` | Convert an image while preserving custody lineage. |
 | `fs80hctl inspect input.tiff` | Report image and manifest information. |
 | `fs80hctl verify probe.png reference.png --threshold 40` | Run a 1:1 technical comparison. |
+| `fs80hctl template create capture.png --template-format iso2011 --output finger.fmr` | Extract operational minutiae and create a template. |
 | `fs80hctl serve` | Start the Unix-domain socket capture daemon. |
 
 ### Capture and enrollment
@@ -184,6 +186,21 @@ fs80hctl --json inspect capture.png
 ```
 
 `forensic compare` requires at least six geometrically consistent minutiae pairs before it can report a non-zero score. The static liveness heuristic exits with code `4` below its threshold and is not validated to ISO/IEC 30107-3 or LivDet.
+
+### Minutiae templates
+
+Create a template from a captured image, validate its binary structure, and use explicit Base64 only when a text transport is required:
+
+```sh
+fs80hctl template create capture.png --template-format iso2011 \
+  --finger right-index --impression live-plain --output right-index.fmr
+fs80hctl template validate right-index.fmr --template-format iso2011
+fs80hctl template base64 encode right-index.fmr --template-format iso2011 > right-index.b64
+fs80hctl template base64 decode right-index.b64 --template-format iso2011 --output restored.fmr
+cmp right-index.fmr restored.fmr
+```
+
+Profiles: `iso2005`, `iso2011`, `ansi2004`, `ansi2009`, and `ansi2009-am1`. Template generation and validation are operational/structural features; they do not certify AFIS matching accuracy, PAD/liveness, or external-profile conformance.
 
 For every command and flag, run `fs80hctl --help` or read the [technical manual](docs/MANUAL.md).
 

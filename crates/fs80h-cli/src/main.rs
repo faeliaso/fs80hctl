@@ -7,18 +7,20 @@ use clap::Parser;
 use cli::{
     CaptureArgs, Cli, CliError, CliExitCode, Command, ConvertArgs, DeviceCommand, EnrollArgs,
     ForensicAnnotateArgs, ForensicCommand, ForensicCompareArgs, ForensicLivenessArgs,
-    ForensicReportArgs, InspectArgs, MANUAL_TEXT, OutputFormat, Selection, ToolBenchCommand,
-    ToolBenchIoArgs, ToolBenchMatchingArgs, ToolCommand, ToolConvertArgs, ToolEnhanceArgs,
-    ToolImageFormat, VerifyArgs, VerifyOutput,
+    ForensicReportArgs, InspectArgs, MANUAL_TEXT, OutputFormat, Selection, TemplateBase64Command,
+    TemplateBase64DecodeArgs, TemplateCommand, TemplateConvertArgs, TemplateCreateArgs,
+    TemplateFingerArg, TemplateFormatArg, TemplateImpressionArg, TemplateInspectArgs,
+    ToolBenchCommand, ToolBenchIoArgs, ToolBenchMatchingArgs, ToolCommand, ToolConvertArgs,
+    ToolEnhanceArgs, ToolImageFormat, VerifyArgs, VerifyOutput,
 };
 use doctor::run_doctor_with_mock;
 use fs80h_core::{
-    CaptureManifest, DPI, DerivedManifest, FRAME_LEN, FingerprintScanner, GrayscaleImage, HEIGHT,
-    ImageFormat, MIN_FORENSIC_PAIR_SUPPORT, Manifest, RawFrame, WIDTH, analyze_liveness,
-    annotate_image, benchmark_matching, compare_frames, compare_images_image,
-    compare_minutiae_sets, compare_probe_to_gallery, create_forensic_report, decode_wsq,
-    encode_wsq, enhance_gabor, evaluate_quality, extract_skeleton_minutiae,
-    match_minutiae_pairs_aligned,
+    CaptureManifest, DPI, DerivedManifest, FRAME_LEN, FingerPosition, FingerprintScanner,
+    GrayscaleImage, HEIGHT, ImageFormat, ImpressionType, MIN_FORENSIC_PAIR_SUPPORT, Manifest,
+    RawFrame, Template, TemplateFormat, WIDTH, analyze_liveness, annotate_image,
+    benchmark_matching, compare_frames, compare_images_image, compare_minutiae_sets,
+    compare_probe_to_gallery, create_forensic_report, decode_wsq, encode_wsq, enhance_gabor,
+    evaluate_quality, extract_skeleton_minutiae, match_minutiae_pairs_aligned,
 };
 use fs80h_driver::{
     DriverError, FutronicScanner, MockScenario, MockTransport, TransportError,
@@ -111,6 +113,16 @@ fn map_driver_error(err: DriverError) -> CliError {
 
 fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
     match &cli.command {
+        Command::Template { command } => match command {
+            TemplateCommand::Create(args) => handle_template_create(args, format)?,
+            TemplateCommand::Inspect(args) => handle_template_inspect(args, format, false)?,
+            TemplateCommand::Validate(args) => handle_template_inspect(args, format, true)?,
+            TemplateCommand::Convert(args) => handle_template_convert(args, format)?,
+            TemplateCommand::Base64 { command } => match command {
+                TemplateBase64Command::Encode(args) => handle_template_base64_encode(args, format)?,
+                TemplateBase64Command::Decode(args) => handle_template_base64_decode(args, format)?,
+            },
+        },
         Command::Devices => {
             let devices =
                 list_devices_with_mock(cli.mock).map_err(|e| CliError::Hardware(e.to_string()))?;
@@ -1096,6 +1108,176 @@ fn handle_forensic_report(args: &ForensicReportArgs) -> Result<(), CliError> {
         .map_err(|e| CliError::Operational(format!("failed to load forensic input: {e}")))?;
     // Report is deliberately JSON-only, independent of the global display mode.
     print_json(&create_forensic_report(&args.image, &frame))
+}
+
+fn template_format(value: TemplateFormatArg) -> TemplateFormat {
+    match value {
+        TemplateFormatArg::Iso2005 => TemplateFormat::Iso19794_2_2005,
+        TemplateFormatArg::Iso2011 => TemplateFormat::Iso19794_2_2011,
+        TemplateFormatArg::Ansi2004 => TemplateFormat::Ansi378_2004,
+        TemplateFormatArg::Ansi2009 => TemplateFormat::Ansi378_2009,
+        TemplateFormatArg::Ansi2009Am1 => TemplateFormat::Ansi378_2009Am1,
+    }
+}
+
+fn template_finger(value: TemplateFingerArg) -> FingerPosition {
+    match value {
+        TemplateFingerArg::Unknown => FingerPosition::Unknown,
+        TemplateFingerArg::RightThumb => FingerPosition::RightThumb,
+        TemplateFingerArg::RightIndex => FingerPosition::RightIndex,
+        TemplateFingerArg::RightMiddle => FingerPosition::RightMiddle,
+        TemplateFingerArg::RightRing => FingerPosition::RightRing,
+        TemplateFingerArg::RightLittle => FingerPosition::RightLittle,
+        TemplateFingerArg::LeftThumb => FingerPosition::LeftThumb,
+        TemplateFingerArg::LeftIndex => FingerPosition::LeftIndex,
+        TemplateFingerArg::LeftMiddle => FingerPosition::LeftMiddle,
+        TemplateFingerArg::LeftRing => FingerPosition::LeftRing,
+        TemplateFingerArg::LeftLittle => FingerPosition::LeftLittle,
+    }
+}
+
+fn template_impression(value: TemplateImpressionArg) -> ImpressionType {
+    match value {
+        TemplateImpressionArg::LivePlain => ImpressionType::LivePlain,
+        TemplateImpressionArg::LiveRolled => ImpressionType::LiveRolled,
+        TemplateImpressionArg::NonLivePlain => ImpressionType::NonLivePlain,
+        TemplateImpressionArg::NonLiveRolled => ImpressionType::NonLiveRolled,
+        TemplateImpressionArg::LiveSwipe => ImpressionType::LiveSwipe,
+        TemplateImpressionArg::Unknown => ImpressionType::Unknown,
+    }
+}
+
+fn parse_template_file(
+    path: &std::path::Path,
+    format: TemplateFormat,
+) -> Result<Template, CliError> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| CliError::Operational(format!("failed to read {}: {e}", path.display())))?;
+    Template::parse(format, &bytes)
+        .map_err(|e| CliError::Operational(format!("invalid template: {e}")))
+}
+
+fn template_summary(template: &Template, format: TemplateFormat) -> serde_json::Value {
+    serde_json::json!({
+        "format": format,
+        "finger_views": template.fingers.len(),
+        "minutiae": template.fingers.iter().map(|f| f.minutiae.len()).sum::<usize>(),
+        "singular_points": template.fingers.iter().map(|f| f.singular_points.len()).sum::<usize>(),
+        "positions": template.fingers.iter().map(|f| f.position).collect::<Vec<_>>(),
+    })
+}
+
+fn handle_template_create(args: &TemplateCreateArgs, output: OutputFormat) -> Result<(), CliError> {
+    let frame = RawFrame::from_file(&args.image).map_err(|e| {
+        CliError::Operational(format!("failed to load {}: {e}", args.image.display()))
+    })?;
+    let format = template_format(args.format);
+    let template = Template::from_frame(
+        &frame,
+        template_finger(args.finger),
+        template_impression(args.impression),
+    );
+    let bytes = template
+        .to_bytes(format)
+        .map_err(|e| CliError::Operational(e.to_string()))?;
+    std::fs::write(&args.output, bytes).map_err(|e| {
+        CliError::Operational(format!("failed to write {}: {e}", args.output.display()))
+    })?;
+    match output {
+        OutputFormat::Json => print_json(&template_summary(&template, format))?,
+        _ => println!(
+            "Created {:?} template with {} minutiae at {}",
+            format,
+            template.fingers[0].minutiae.len(),
+            args.output.display()
+        ),
+    }
+    Ok(())
+}
+
+fn handle_template_inspect(
+    args: &TemplateInspectArgs,
+    output: OutputFormat,
+    validation_only: bool,
+) -> Result<(), CliError> {
+    let format = template_format(args.format);
+    let template = parse_template_file(&args.input, format)?;
+    template
+        .validate(format)
+        .map_err(|e| CliError::Operational(e.to_string()))?;
+    if output == OutputFormat::Json {
+        print_json(&template_summary(&template, format))?;
+    } else if validation_only {
+        println!("VALID: {:?}", format);
+    } else {
+        let s = template_summary(&template, format);
+        println!(
+            "Template: {:?}\nFinger views: {}\nMinutiae: {}\nSingular points: {}",
+            format, s["finger_views"], s["minutiae"], s["singular_points"]
+        );
+    }
+    Ok(())
+}
+
+fn handle_template_convert(
+    args: &TemplateConvertArgs,
+    output: OutputFormat,
+) -> Result<(), CliError> {
+    let to = template_format(args.to);
+    let template = parse_template_file(&args.input, template_format(args.from))?;
+    let bytes = template
+        .to_bytes(to)
+        .map_err(|e| CliError::Operational(e.to_string()))?;
+    std::fs::write(&args.output, bytes).map_err(|e| {
+        CliError::Operational(format!("failed to write {}: {e}", args.output.display()))
+    })?;
+    if output == OutputFormat::Json {
+        print_json(&template_summary(&template, to))?;
+    } else {
+        println!("Converted template to {:?}: {}", to, args.output.display());
+    }
+    Ok(())
+}
+
+fn handle_template_base64_encode(
+    args: &TemplateInspectArgs,
+    output: OutputFormat,
+) -> Result<(), CliError> {
+    let format = template_format(args.format);
+    let template = parse_template_file(&args.input, format)?;
+    let value = template
+        .to_base64(format)
+        .map_err(|e| CliError::Operational(e.to_string()))?;
+    if output == OutputFormat::Json {
+        print_json(&serde_json::json!({"format": format, "base64": value}))?;
+    } else {
+        println!("{value}");
+    }
+    Ok(())
+}
+
+fn handle_template_base64_decode(
+    args: &TemplateBase64DecodeArgs,
+    output: OutputFormat,
+) -> Result<(), CliError> {
+    let format = template_format(args.format);
+    let text = std::fs::read_to_string(&args.input).map_err(|e| {
+        CliError::Operational(format!("failed to read {}: {e}", args.input.display()))
+    })?;
+    let template = Template::from_base64(format, text.trim())
+        .map_err(|e| CliError::Operational(e.to_string()))?;
+    let bytes = template
+        .to_bytes(format)
+        .map_err(|e| CliError::Operational(e.to_string()))?;
+    std::fs::write(&args.output, bytes).map_err(|e| {
+        CliError::Operational(format!("failed to write {}: {e}", args.output.display()))
+    })?;
+    if output == OutputFormat::Json {
+        print_json(&template_summary(&template, format))?;
+    } else {
+        println!("Decoded Base64 template to {}", args.output.display());
+    }
+    Ok(())
 }
 
 fn tool_format_from_path(path: &std::path::Path) -> Result<ToolImageFormat, CliError> {

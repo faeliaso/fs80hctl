@@ -34,6 +34,19 @@ FS80H_VARIABLE_DOSE=1 ./scripts/test-physical.sh
 
 The script outputs the captured image and manifest into a temporary directory `fs80h-physical.*` located in `~/Downloads`, performs an automated local 1:1 verification, and reports the directory path. To choose a custom directory, set `FS80H_OUTPUT_DIR`.
 
+To exercise the template path with the same physical capture, create an ISO 2011 template, validate it, and test explicit Base64 round-trip in that protected directory:
+
+```sh
+fs80hctl template create "$OUTPUT_DIR/capture.png" --template-format iso2011 \
+  --finger right-index --impression live-plain --output "$OUTPUT_DIR/right-index.fmr"
+fs80hctl template validate "$OUTPUT_DIR/right-index.fmr" --template-format iso2011
+fs80hctl template base64 encode "$OUTPUT_DIR/right-index.fmr" --template-format iso2011 > "$OUTPUT_DIR/right-index.b64"
+fs80hctl template base64 decode "$OUTPUT_DIR/right-index.b64" --template-format iso2011 --output "$OUTPUT_DIR/right-index-decoded.fmr"
+cmp "$OUTPUT_DIR/right-index.fmr" "$OUTPUT_DIR/right-index-decoded.fmr"
+```
+
+Replace `OUTPUT_DIR` with the physical-test directory printed by the script. This tests local extraction and serialization, not matching accuracy or external-profile conformance.
+
 > [!CAUTION]
 > Biometric data is sensitive. Always review, protect, and safely delete this test directory after completing your verification.
 
