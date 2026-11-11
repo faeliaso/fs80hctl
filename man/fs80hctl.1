@@ -14,6 +14,8 @@ is a pure-Rust command-line tool for technical and forensic operations on
 Futronic optical fingerprint scanners (FS80, FS80H, and FS81H). It provides direct
 optical sensor acquisition, biometric standard compliance (500 DPI), image quality metrics,
 format transcoding with immutable chain of custody, and deterministic 1:1 biometric comparison.
+It also provides technical forensic analysis and image tools; these results are
+not identification decisions, expert reports, or certified PAD claims.
 .SH GLOBAL OPTIONS
 .TP
 .BR \-\-format " " \fI<text|json|raw>\fR
@@ -59,6 +61,12 @@ Inspect metadata, SHA-256 hash, and quality metrics of a biometric image.
 .B verify PROBE [REFERENCE] [\-\-gallery DIR] [\-\-threshold T] [\-\-exit\-code]
 Compare biometric images (1:1 with reference file or 1:N against a gallery directory) and calculate technical similarity score.
 .TP
+.B forensic annotate|compare|liveness|report
+Run technical minutiae annotation, corroborated-pair comparison, static liveness screening, or a JSON-only forensic report. Comparison requires at least six geometrically consistent minutiae pairs before it may return a non-zero score. The liveness screen is a heuristic, not a certified presentation-attack-detection result. Keep real biometric inputs and all derived output outside the repository; see docs/FORENSIC_BIOMETRIC_VALIDATION.md.
+.TP
+.B tool enhance|convert|bench
+Enhance a fingerprint image, convert RAW/PNG/WSQ interchange files, or run deterministic synthetic matching and image-I/O benchmarks.
+.TP
 .B serve [\-\-socket\-path PATH] [\-\-systemd]
 Run background capture daemon over Unix Domain Socket for low-latency acquisition.
 .TP
@@ -92,7 +100,7 @@ Biometric mismatch (comparison score below configured threshold).
 Capture timeout or finger not detected within acquisition window.
 .TP
 .B 4
-Biometric quality insufficient (rejected by quality evaluation).
+Biometric quality insufficient (rejected by quality evaluation) or liveness score below the heuristic threshold.
 .TP
 .B 5
 USB hardware failure (device not found, permission denied, I/O error).

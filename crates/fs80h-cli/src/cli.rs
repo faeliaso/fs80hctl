@@ -543,6 +543,26 @@ SUBCOMMANDS
             fs80hctl --format json verify probe.pgm ref.png
             fs80hctl verify probe.png --gallery ./enrolled_users/
 
+    forensic annotate|compare|liveness|report
+        Technical minutiae analysis for authorized evaluation, not identification, expert reporting,
+        or certified presentation-attack detection. Generated output is biometric-derived data and
+        must be protected outside the repository. See docs/FORENSIC_BIOMETRIC_VALIDATION.md.
+        Examples:
+            fs80hctl forensic annotate --input capture.png --output annotated.png
+            fs80hctl forensic compare --probe capture.png --reference reference.png --output comparison.png
+            fs80hctl --format json forensic liveness capture.png
+            fs80hctl forensic report capture.png
+        A comparison requires at least six geometrically consistent minutiae pairs before it can
+        report a non-zero score. Liveness is a static heuristic, not a certified PAD result.
+
+    tool enhance|convert|bench
+        Enhance a fingerprint image, convert RAW/PNG/WSQ files, or run deterministic synthetic
+        matching and image-I/O benchmarks.
+        Examples:
+            fs80hctl tool enhance --input capture.png --output enhanced.png
+            fs80hctl tool convert --input capture.png --output capture.wsq
+            fs80hctl --format json tool bench matching --templates 50000
+
     manual
         Display this technical reference manual on standard output.
 
@@ -562,6 +582,6 @@ EXIT CODES
     1   Operational error of syntax, invalid parameters, or unexpected failure.
     2   Biometric mismatch (comparison score below threshold).
     3   Timeout or finger not detected in capture window.
-    4   Biometric quality insufficient (rejected by quality evaluation).
+    4   Biometric quality insufficient or liveness score below the heuristic threshold.
     5   USB hardware failure (device not found, permission denied, I/O error).
 "#;

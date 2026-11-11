@@ -3,7 +3,9 @@
 Technical Rust CLI for the Futronic FS80/FS80H fingerprint scanner, designed for optical frame acquisition, forensic image processing, standard biometric formats (TIFF 500 DPI, NIST PGM, RAW, PNG), chain-of-custody tracking, and 1:1 biometric comparison.
 
 > Results provided by this tool are technical similarity indicators. They do not
-> constitute civil identification, forensic expert reports, liveness detection, or anti-spoofing certification.
+> constitute civil identification, forensic expert reports, or certified liveness/
+> anti-spoofing results. The static liveness screen is an engineering heuristic,
+> not a presentation-attack-detection (PAD) claim.
 
 ## Features
 
@@ -20,6 +22,8 @@ Technical Rust CLI for the Futronic FS80/FS80H fingerprint scanner, designed for
 - **Immutable Chain of Custody**: SHA-256 computed on the raw optical sensor buffer and preserved in an adjacent `.meta.json` manifest.
 - **Native Quality Assessment**: Mean local variance across 16×16 blocks and sensor saturation ratio analysis.
 - **Biometric Verification (`verify`)**: Deterministic spatial minutiae comparison supporting 1:1 pairwise matching and 1:N gallery identification against directories.
+- **Forensic Analysis (`forensic`)**: Minutiae annotation, corroborated-pair comparison, JSON reporting, and static liveness screening for authorized technical evaluation.
+- **Image Tools (`tool`)**: Gabor enhancement, RAW/PNG/WSQ interchange conversion, and deterministic synthetic benchmarks.
 - **Environment Diagnostics (`doctor`)**: Verifies USB subsystem, scanner permissions, and filesystem write access.
 - **100% Pure Rust Ecosystem**: Zero C bridges, vendored ABI bundles, or dynamic library dependencies (`libtiff`/`libpng`).
 
@@ -179,6 +183,37 @@ cargo run -p fs80h-cli -- --json verify probe.png --gallery ./enrolled_users/
 # Fail with non-zero exit code (1) if threshold is not met
 cargo run -p fs80h-cli -- verify forensic.tiff capture.png --threshold 40 --exit-code
 ```
+
+---
+
+### Forensic Analysis and Image Tools
+
+The `forensic` commands are technical aids, not identification or certified PAD
+workflows. Keep real biometric inputs and all derived artifacts outside the
+repository. The complete authorized-dataset procedure is in
+[`docs/FORENSIC_BIOMETRIC_VALIDATION.md`](docs/FORENSIC_BIOMETRIC_VALIDATION.md).
+
+```sh
+# Draw detected skeleton minutiae over a supported 320x480 image
+cargo run -p fs80h-cli -- forensic annotate --input capture.png --output annotated.png
+
+# Compare two images; exit code 2 means score or corroborated-pair support is insufficient
+cargo run -p fs80h-cli -- forensic compare --probe probe.png --reference reference.png --output comparison.png
+
+# Emit the JSON-only forensic report, or run the static liveness heuristic
+cargo run -p fs80h-cli -- forensic report capture.png
+cargo run -p fs80h-cli -- --json forensic liveness capture.png
+
+# Enhance a frame, convert among RAW/PNG/WSQ, or benchmark synthetic work
+cargo run -p fs80h-cli -- tool enhance --input capture.png --output enhanced.png
+cargo run -p fs80h-cli -- tool convert --input capture.png --output capture.wsq
+cargo run -p fs80h-cli -- --json tool bench matching --templates 50000
+```
+
+`forensic compare` requires at least six geometrically consistent minutiae pairs
+before it can report a non-zero comparison score. `forensic liveness` exits with
+code 4 below its current heuristic threshold; it is not validated to ISO/IEC
+30107-3 or LivDet.
 
 ---
 
