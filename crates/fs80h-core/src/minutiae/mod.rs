@@ -78,7 +78,15 @@ fn thin(mask: &mut [bool], width: usize, height: usize) {
     }
 }
 
-fn branch_support(mask: &[bool], width: usize, x: usize, y: usize, minimum: usize) -> bool {
+/// Follows a single skeleton branch from an ending. Returns its final point
+/// only when the branch stays unambiguous for the requested distance.
+fn trace_branch(
+    mask: &[bool],
+    width: usize,
+    x: usize,
+    y: usize,
+    minimum: usize,
+) -> Option<(usize, usize)> {
     let mut previous = (x, y);
     let mut current = (x, y);
     for _ in 0..minimum {
@@ -91,12 +99,12 @@ fn branch_support(mask: &[bool], width: usize, x: usize, y: usize, minimum: usiz
             }
         }
         if next.len() != 1 {
-            return false;
+            return None;
         }
         previous = current;
         current = next[0];
     }
-    true
+    Some(current)
 }
 
 fn bifurcation_support(mask: &[bool], width: usize, x: usize, y: usize) -> bool {
@@ -125,6 +133,52 @@ fn bifurcation_support(mask: &[bool], width: usize, x: usize, y: usize) -> bool 
         })
 }
 
+/// Estimates whether a candidate belongs to a coherent ridge field rather than
+/// a noisy, broken edge. Fingerprint ridges have a concentrated local gradient
+/// direction; paper texture and the contact boundary do not. The calculation
+/// uses the doubled angle representation, so ridge directions 180° apart are
+/// treated as identical.
+fn local_ridge_quality(image: &GrayscaleImage, x: usize, y: usize) -> f32 {
+    const RADIUS: usize = 8;
+    let width = image.width();
+    let pixels = image.pixels();
+    let mut magnitude_sum = 0.0_f32;
+    let mut cos_sum = 0.0_f32;
+    let mut sin_sum = 0.0_f32;
+    let mut intensity_sum = 0.0_f32;
+    let mut intensity_sq_sum = 0.0_f32;
+    let mut samples = 0.0_f32;
+
+    for yy in y - RADIUS..=y + RADIUS {
+        for xx in x - RADIUS..=x + RADIUS {
+            let gx =
+                pixels[index(width, xx + 1, yy)] as f32 - pixels[index(width, xx - 1, yy)] as f32;
+            let gy =
+                pixels[index(width, xx, yy + 1)] as f32 - pixels[index(width, xx, yy - 1)] as f32;
+            let magnitude = gx.hypot(gy);
+            if magnitude > 0.0 {
+                let angle = gy.atan2(gx);
+                cos_sum += magnitude * (2.0 * angle).cos();
+                sin_sum += magnitude * (2.0 * angle).sin();
+                magnitude_sum += magnitude;
+            }
+            let intensity = pixels[index(width, xx, yy)] as f32;
+            intensity_sum += intensity;
+            intensity_sq_sum += intensity * intensity;
+            samples += 1.0;
+        }
+    }
+
+    if magnitude_sum == 0.0 {
+        return 0.0;
+    }
+    let coherence = cos_sum.hypot(sin_sum) / magnitude_sum;
+    let variance = (intensity_sq_sum / samples - (intensity_sum / samples).powi(2)).max(0.0);
+    // Both terms deliberately saturate: a crisp ridge field scores highly,
+    // while a high-contrast isolated artifact cannot pass on contrast alone.
+    (coherence * (variance / 600.0).sqrt().min(1.0)).clamp(0.0, 1.0)
+}
+
 /// Extracts sparse ridge endings and bifurcations from a grayscale image.
 pub fn extract_skeleton_minutiae(image: &GrayscaleImage) -> Vec<Minutia> {
     let (width, height) = (image.width(), image.height());
@@ -133,9 +187,13 @@ pub fn extract_skeleton_minutiae(image: &GrayscaleImage) -> Vec<Minutia> {
     }
     let mut mask = binarize(image);
     thin(&mut mask, width, height);
+    // Contact boundaries create artificial ridge endings. A larger exclusion
+    // band is intentional: images are partial impressions, not rolled prints.
+    const EDGE_MARGIN: usize = 32;
+    const MIN_RIDGE_QUALITY: f32 = 0.55;
     let mut out = Vec::new();
-    for y in 20..height - 20 {
-        for x in 20..width - 20 {
+    for y in EDGE_MARGIN..height - EDGE_MARGIN {
+        for x in EDGE_MARGIN..width - EDGE_MARGIN {
             if !mask[index(width, x, y)] {
                 continue;
             }
@@ -146,27 +204,47 @@ pub fn extract_skeleton_minutiae(image: &GrayscaleImage) -> Vec<Minutia> {
                 3 => MinutiaKind::Bifurcation,
                 _ => continue,
             };
-            if kind == MinutiaKind::RidgeEnding && !branch_support(&mask, width, x, y, 10) {
+            let branch_end = if kind == MinutiaKind::RidgeEnding {
+                let Some(end) = trace_branch(&mask, width, x, y, 10) else {
+                    continue;
+                };
+                Some(end)
+            } else {
+                None
+            };
+            if kind == MinutiaKind::Bifurcation && !bifurcation_support(&mask, width, x, y) {
                 continue;
             }
-            if kind == MinutiaKind::Bifurcation && !bifurcation_support(&mask, width, x, y) {
+            let quality = local_ridge_quality(image, x, y);
+            if quality < MIN_RIDGE_QUALITY {
                 continue;
             }
             if out
                 .iter()
-                .any(|m: &Minutia| (m.x - x as f32).hypot(m.y - y as f32) < 14.0)
+                .any(|m: &Minutia| (m.x - x as f32).hypot(m.y - y as f32) < 18.0)
             {
                 continue;
             }
-            let gx = image.pixels()[index(width, x + 1, y)] as f32
-                - image.pixels()[index(width, x - 1, y)] as f32;
-            let gy = image.pixels()[index(width, x, y + 1)] as f32
-                - image.pixels()[index(width, x, y - 1)] as f32;
+            let angle_deg = if let Some((end_x, end_y)) = branch_end {
+                // The ridge tangent is stable across illumination changes;
+                // Sobel's normal is not. It is therefore the appropriate
+                // orientation for a ridge-ending correspondence.
+                ((end_y as f32 - y as f32)
+                    .atan2(end_x as f32 - x as f32)
+                    .to_degrees())
+                .rem_euclid(180.0)
+            } else {
+                let gx = image.pixels()[index(width, x + 1, y)] as f32
+                    - image.pixels()[index(width, x - 1, y)] as f32;
+                let gy = image.pixels()[index(width, x, y + 1)] as f32
+                    - image.pixels()[index(width, x, y - 1)] as f32;
+                gy.atan2(gx).to_degrees().rem_euclid(180.0)
+            };
             out.push(Minutia {
                 x: x as f32,
                 y: y as f32,
-                angle_deg: gy.atan2(gx).to_degrees().rem_euclid(180.0),
-                quality: 0.8,
+                angle_deg,
+                quality,
                 kind,
             });
         }

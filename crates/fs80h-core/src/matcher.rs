@@ -4,6 +4,11 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
+/// Lowest correspondence support accepted by the forensic visual comparator.
+/// Below this limit, isolated boundary endings can form a coincidental rigid
+/// transform and must not be presented as a biometric match.
+pub const MIN_FORENSIC_PAIR_SUPPORT: usize = 6;
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MinutiaKind {
@@ -96,6 +101,7 @@ pub fn match_minutiae_pairs(probe: &[Minutia], reference: &[Minutia]) -> Vec<(us
             .enumerate()
             .filter(|(i, b)| {
                 !used[*i]
+                    && a.kind == b.kind
                     && ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt() <= 15.0
                     && angle_distance(a.angle_deg, b.angle_deg) <= 25.0
             })

@@ -14,10 +14,11 @@ use cli::{
 use doctor::run_doctor_with_mock;
 use fs80h_core::{
     CaptureManifest, DPI, DerivedManifest, FRAME_LEN, FingerprintScanner, GrayscaleImage, HEIGHT,
-    ImageFormat, Manifest, RawFrame, WIDTH, analyze_liveness, annotate_image, benchmark_matching,
-    compare_frames, compare_images_image, compare_minutiae_sets, compare_probe_to_gallery,
-    create_forensic_report, decode_wsq, encode_wsq, enhance_gabor, evaluate_quality,
-    extract_skeleton_minutiae, match_minutiae_pairs_aligned,
+    ImageFormat, MIN_FORENSIC_PAIR_SUPPORT, Manifest, RawFrame, WIDTH, analyze_liveness,
+    annotate_image, benchmark_matching, compare_frames, compare_images_image,
+    compare_minutiae_sets, compare_probe_to_gallery, create_forensic_report, decode_wsq,
+    encode_wsq, enhance_gabor, evaluate_quality, extract_skeleton_minutiae,
+    match_minutiae_pairs_aligned,
 };
 use fs80h_driver::{
     DriverError, FutronicScanner, MockScenario, MockTransport, TransportError,
@@ -1025,11 +1026,16 @@ fn handle_forensic_compare(args: &ForensicCompareArgs) -> Result<(), CliError> {
     let pairs = match_minutiae_pairs_aligned(&probe_minutiae, &reference_minutiae);
     let mut report = compare_minutiae_sets(&probe_minutiae, &reference_minutiae);
     report.matched_minutiae = pairs.len();
-    report.score = fs80h_core::MatchScore::new(
-        (pairs.len() as f32 / probe_minutiae.len().max(reference_minutiae.len()).max(1) as f32
-            * 100.0)
-            .clamp(0.0, 100.0),
-    )
+    let raw_score = (pairs.len() as f32
+        / probe_minutiae.len().max(reference_minutiae.len()).max(1) as f32
+        * 100.0)
+        .clamp(0.0, 100.0);
+    let sufficient_correspondences = pairs.len() >= MIN_FORENSIC_PAIR_SUPPORT;
+    report.score = fs80h_core::MatchScore::new(if sufficient_correspondences {
+        raw_score
+    } else {
+        0.0
+    })
     .unwrap();
     compare_images_image(
         &probe,
@@ -1042,7 +1048,10 @@ fn handle_forensic_compare(args: &ForensicCompareArgs) -> Result<(), CliError> {
     .map_err(|e| CliError::Operational(format!("failed to save comparison PNG: {e}")))?;
     let summary = serde_json::json!({
         "score": report.score.as_f32(),
+        "raw_score": raw_score,
         "paired_minutiae_count": pairs.len(),
+        "minimum_pair_support": MIN_FORENSIC_PAIR_SUPPORT,
+        "sufficient_correspondences": sufficient_correspondences,
         "probe_minutiae_total": probe_minutiae.len(),
         "reference_minutiae_total": reference_minutiae.len(),
         "output": args.output,

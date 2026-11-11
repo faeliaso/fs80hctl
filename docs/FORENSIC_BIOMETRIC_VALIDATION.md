@@ -90,9 +90,16 @@ status=$?
 printf '%s,%s\n' "$PAIR_ID" "$status" >>"$FS80H_EVAL_DIR/results/compare-exit-codes.csv"
 ```
 
-The command uses exit `0` for a score at or above the supplied threshold and `2`
-below it. An exit code is not a ground-truth label. Record the actual `score`,
-`paired_minutiae_count`, and declared `pair_class` for every pair.
+The command uses exit `0` only when the score is at or above the supplied
+threshold **and** the comparison has at least six geometrically consistent
+minutiae pairs. It uses exit `2` below either requirement. The JSON includes
+`raw_score`, `minimum_pair_support`, and `sufficient_correspondences`; record
+these fields, the final `score`, `paired_minutiae_count`, and declared
+`pair_class` for every pair. An exit code is not a ground-truth label.
+
+If `sufficient_correspondences` is `false`, treat the result as *insufficient
+evidence*, not as proof that two samples differ. Recapture with a larger, stable
+contact area rather than reducing the threshold or pair-support requirement.
 
 Calculate at minimum on the holdout partition:
 
