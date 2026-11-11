@@ -6,6 +6,7 @@
 # Qualquer imagem PNG ou manifesto .meta.json gerado localmente é ignorado por padrão,
 # exceto os fixtures sintéticos autorizados e determinísticos em tests/fixtures.
 *.png
+!assets/*.png
 *.meta.json
 
 !tests/fixtures/*.png

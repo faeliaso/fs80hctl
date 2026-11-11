@@ -1,5 +1,7 @@
 # fs80hctl
 
+<img src="assets/fs80h.png" alt="Futronic FS80H fingerprint scanner" width="250">
+
 Technical Rust CLI for the Futronic FS80/FS80H fingerprint scanner, designed for optical frame acquisition, forensic image processing, standard biometric formats (PNG, TIFF, PGM, RAW, WSQ, JPEG 2000, JPEG, BMP), chain-of-custody tracking, and 1:1 biometric comparison.
 
 > Results provided by this tool are technical similarity indicators. They do not
