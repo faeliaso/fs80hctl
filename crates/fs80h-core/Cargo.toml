@@ -13,6 +13,7 @@ chrono.workspace = true
 blake3.workspace = true
 hex.workspace = true
 image.workspace = true
+openjpeg2-pure-rs.workspace = true
 png.workspace = true
 rayon = { workspace = true, optional = true }
 serde.workspace = true
@@ -25,6 +26,7 @@ wsq-codec.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+tempfile.workspace = true
 
 [[test]]
 name = "verify_pipeline"

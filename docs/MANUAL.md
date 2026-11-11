@@ -264,8 +264,9 @@ validation.
 ### `tool`
 
 Provides local image processing and repeatable synthetic benchmarks. `convert`
-within this command supports `raw`, `png`, and `wsq` format names (or infers them
-from the file extensions); WSQ bitrate defaults to `0.75` and DPI to `500`.
+within this command supports `raw`, `png`, `wsq`, `jp2`, `jpeg`, and `bmp` format
+names (or infers them from file extensions); WSQ bitrate defaults to `0.75` and
+DPI to `500`.
 
 ```bash
 fs80hctl tool enhance --input sample.png --output enhanced.png
@@ -294,6 +295,10 @@ fs80hctl --json manual
 | **TIFF** | Baseline 6.0 L8 grayscale with full forensic EXIF tags (`Make="Futronic"`, `Model="FS80H"`, `XResolution=500`, `YResolution=500`, `ResolutionUnit=Inch`). | Forensic archiving, expert reports, legal custody. |
 | **PGM** | Netpbm binary format P5 (320 480 255). | Reference tools: NIST NBIS (`mindtct`, `bozorth3`). |
 | **RAW / DAT** | Uncompressed 153,600-byte contiguous buffer (320×480 in L8). | Neural network training, NumPy, PyTorch. |
+| **WSQ** | Pure-Rust fingerprint compression, 500 DPI, default bitrate 0.75. | AFIS interchange. |
+| **JPEG 2000 / JP2** | Lossless 8-bit grayscale JP2 output. | Lossless interchange and archiving. |
+| **JPEG** | 8-bit grayscale JPEG, quality 95, JFIF density 500 DPI; lossy. | Compatibility previews and exchange. |
+| **BMP** | Uncompressed 8-bit grayscale palette, 500 DPI. | Legacy Windows-compatible exchange. |
 
 ---
 

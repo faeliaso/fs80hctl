@@ -287,6 +287,83 @@ fn test_cli_convert_and_inspect() {
 }
 
 #[test]
+fn test_cli_extended_format_conversion_and_verification() {
+    let tmp_dir = tempfile::tempdir().expect("temporary directory");
+    let formats = [
+        ("wsq", "wsq"),
+        ("jp2", "jp2"),
+        ("jpeg", "jpeg"),
+        ("bmp", "bmp"),
+    ];
+
+    for (format, extension) in formats {
+        let output = tmp_dir.path().join(format!("probe.{extension}"));
+        let converted = bin()
+            .args([
+                "convert",
+                fixture("probe.png").to_str().unwrap(),
+                "--to",
+                format,
+                "--output",
+                output.to_str().unwrap(),
+            ])
+            .output()
+            .expect("convert extended format");
+        assert!(
+            converted.status.success(),
+            "{format}: {}",
+            String::from_utf8_lossy(&converted.stderr)
+        );
+
+        let inspected = bin()
+            .args(["--json", "inspect", output.to_str().unwrap()])
+            .output()
+            .expect("inspect extended format");
+        assert!(inspected.status.success());
+        let value: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
+        assert_eq!(
+            value["format"],
+            if format == "jpeg" { "jpeg" } else { format }
+        );
+
+        let verified = bin()
+            .args([
+                "verify",
+                output.to_str().unwrap(),
+                fixture("reference_match.png").to_str().unwrap(),
+                "--threshold",
+                "20",
+            ])
+            .output()
+            .expect("verify extended format");
+        assert!(
+            verified.status.success(),
+            "{format}: {}",
+            String::from_utf8_lossy(&verified.stderr)
+        );
+    }
+
+    let tool_output = tmp_dir.path().join("tool-converted.bmp");
+    let tool = bin()
+        .args([
+            "tool",
+            "convert",
+            "--input",
+            fixture("probe.png").to_str().unwrap(),
+            "--output",
+            tool_output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("tool convert to BMP");
+    assert!(
+        tool.status.success(),
+        "{}",
+        String::from_utf8_lossy(&tool.stderr)
+    );
+    assert!(tool_output.exists());
+}
+
+#[test]
 fn test_cli_capture_and_enroll_help() {
     let out = bin()
         .args(["capture", "--help"])

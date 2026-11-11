@@ -17,7 +17,8 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 clap = { version = "4.5", features = ["derive", "env"] }
 hex = "0.4"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+openjpeg2-pure-rs = "0.1.1"
 png = "0.17"
 proptest = "1.5"
 rayon = "1.10"

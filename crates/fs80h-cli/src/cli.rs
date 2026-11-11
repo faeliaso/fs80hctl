@@ -87,7 +87,7 @@ impl CliError {
     name = "fs80hctl",
     version,
     about = "Technical control tool for Futronic FS80/FS80H fingerprint scanners",
-    long_about = "Technical control CLI for Futronic FS80/FS80H optical fingerprint scanners, supporting frame acquisition, presence detection, multi-sample enrollment, SHA-256 chain of custody, forensic transcoding (PNG, TIFF 500 DPI, NIST PGM, RAW), image inspection, and 1:1/1:N biometric verification."
+    long_about = "Technical control CLI for Futronic FS80/FS80H optical fingerprint scanners, supporting frame acquisition, presence detection, multi-sample enrollment, SHA-256 chain of custody, forensic transcoding (PNG, TIFF, PGM, RAW, WSQ, JPEG 2000, JPEG, BMP), image inspection, and 1:1/1:N biometric verification."
 )]
 pub struct Cli {
     /// Global output format: text (human-readable), json (structured payload), or raw (pure byte stream)
@@ -139,7 +139,7 @@ pub enum Command {
     Capture(CaptureArgs),
     /// Acquire multiple samples and elect the highest quality frame (best-of-N)
     Enroll(EnrollArgs),
-    /// Transcode biometric images across forensic formats (PNG, TIFF, PGM, RAW)
+    /// Transcode biometric images across supported formats
     Convert(ConvertArgs),
     /// Inspect image dimensions, DPI, SHA-256 integrity, quality metrics, and custody manifest
     Inspect(InspectArgs),
@@ -197,7 +197,7 @@ pub struct CaptureArgs {
     /// Output file path (default: capture.png)
     #[arg(short, long, default_value = "capture.png")]
     pub output: PathBuf,
-    /// Target image encoding format (png, tiff, pgm, raw). Inferred from output extension if omitted.
+    /// Target image encoding format (png, tiff, pgm, raw, wsq, jp2, jpeg, bmp). Inferred from output extension if omitted.
     #[arg(long = "image-format", visible_alias = "img-format")]
     pub image_format: Option<ImageFormat>,
     /// Save raw optical sensor frame without ridge inversion (light ridges on dark background)
@@ -233,7 +233,7 @@ pub struct EnrollArgs {
     /// Output file path (default: enroll.png)
     #[arg(short, long, default_value = "enroll.png")]
     pub output: PathBuf,
-    /// Target image encoding format (png, tiff, pgm, raw). Inferred from output extension if omitted.
+    /// Target image encoding format (png, tiff, pgm, raw, wsq, jp2, jpeg, bmp). Inferred from output extension if omitted.
     #[arg(long = "image-format", visible_alias = "img-format")]
     pub image_format: Option<ImageFormat>,
     /// Number of biometric samples to acquire and evaluate (default: 3)
@@ -264,9 +264,9 @@ pub struct EnrollArgs {
 
 #[derive(Args, Debug)]
 pub struct ConvertArgs {
-    /// Input image file (PNG, TIFF, PGM, RAW)
+    /// Input image file in any supported biometric format
     pub input: PathBuf,
-    /// Target format (png, tiff, pgm, raw). Inferred from output extension if omitted.
+    /// Target format (png, tiff, pgm, raw, wsq, jp2, jpeg, bmp). Inferred from output extension if omitted.
     #[arg(short = 't', long)]
     pub to: Option<ImageFormat>,
     /// Output file path
@@ -279,13 +279,13 @@ pub struct ConvertArgs {
 
 #[derive(Args, Debug)]
 pub struct InspectArgs {
-    /// Biometric image file to inspect (PNG, TIFF, PGM, RAW)
+    /// Biometric image file in any supported format
     pub image: PathBuf,
 }
 
 #[derive(Args, Debug)]
 pub struct VerifyArgs {
-    /// Probe / sample image file (PNG, TIFF, PGM, RAW)
+    /// Probe / sample image file in any supported format
     pub probe: PathBuf,
     /// Reference / template image file for 1:1 verification
     pub reference: Option<PathBuf>,
@@ -347,7 +347,7 @@ pub struct ForensicReportArgs {
 pub enum ToolCommand {
     /// Restore ridge contrast using local-orientation Gabor filtering
     Enhance(ToolEnhanceArgs),
-    /// Convert between raw L8, PNG, and WSQ fingerprint formats
+    /// Convert between supported fingerprint image formats
     Convert(ToolConvertArgs),
     /// Run synthetic matching or image-I/O benchmarks
     Bench {
@@ -369,6 +369,9 @@ pub enum ToolImageFormat {
     Raw,
     Png,
     Wsq,
+    Jpeg2000,
+    Jpeg,
+    Bmp,
 }
 
 #[derive(Args, Debug)]
@@ -481,7 +484,7 @@ SUBCOMMANDS
         With --format raw, streams raw 153,600 sensor bytes directly to stdout for Unix pipes.
         Capture options:
             -o, --output <FILE>          Output path (default: capture.png)
-            --image-format <FORMAT>      Image format: png, tiff, pgm, raw
+            --image-format <FORMAT>      Image format: png, tiff, pgm, raw, wsq, jp2, jpeg, bmp
             --raw                        Save raw optical sensor frame without ridge inversion
             --wait                       Wait for finger presence and contact stabilization before acquiring
             --timeout <SECS>             Timeout in seconds when waiting for finger presence (default: 10)
@@ -500,7 +503,7 @@ SUBCOMMANDS
         automatically elect and persist the highest quality frame (best-of-N).
         Enroll options:
             -o, --output <FILE>          Output path (default: enroll.png)
-            --image-format <FORMAT>      Image format: png, tiff, pgm, raw
+            --image-format <FORMAT>      Image format: png, tiff, pgm, raw, wsq, jp2, jpeg, bmp
             --samples <N>                Number of samples to acquire and evaluate (default: 3)
             --timeout <SECS>             Timeout in seconds per sample (default: 10)
             --min-quality <0-100>        Minimum quality score threshold per sample (default: 50)
@@ -514,7 +517,7 @@ SUBCOMMANDS
         Transcode biometric images between formats, preserving root custody SHA-256 in the
         adjacent .meta.json manifest.
         Conversion options:
-            -t, --to <FORMAT>            Target format: png, tiff, pgm, raw
+            -t, --to <FORMAT>            Target format: png, tiff, pgm, raw, wsq, jp2, jpeg, bmp
             -o, --output <FILE>          Output file path
             --invert                     Invert pixel polarity (255 - pixel)
         Examples:
@@ -556,7 +559,7 @@ SUBCOMMANDS
         report a non-zero score. Liveness is a static heuristic, not a certified PAD result.
 
     tool enhance|convert|bench
-        Enhance a fingerprint image, convert RAW/PNG/WSQ files, or run deterministic synthetic
+        Enhance a fingerprint image, convert supported image files, or run deterministic synthetic
         matching and image-I/O benchmarks.
         Examples:
             fs80hctl tool enhance --input capture.png --output enhanced.png
@@ -571,6 +574,10 @@ SUPPORTED FORMATS
     TIFF    Baseline 6.0 L8 grayscale, full forensic EXIF tags (Make, Model, Software, 500 DPI).
     PGM     Netpbm binary P5, native format for NIST NBIS tools (mindtct, bozorth3).
     RAW/DAT Uncompressed 153,600-byte L8 buffer for NumPy, PyTorch, and ML pipelines.
+    WSQ     Pure-Rust fingerprint compression at 500 DPI (default bitrate 0.75).
+    JP2     Lossless JPEG 2000 L8 interchange at 500 DPI.
+    JPEG    Grayscale quality-95 derivative with 500 DPI JFIF density (lossy).
+    BMP     Uncompressed L8 grayscale palette at 500 DPI.
 
 CHAIN OF CUSTODY
     Every saved or converted image preserves an adjacent <IMAGE>.meta.json manifest.

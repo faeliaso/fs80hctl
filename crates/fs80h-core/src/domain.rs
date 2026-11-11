@@ -1,5 +1,10 @@
 use crate::quality::QualityReport;
 use chrono::{DateTime, Utc};
+use image::codecs::jpeg::{JpegEncoder, PixelDensity};
+use image::{ExtendedColorType, ImageFormat as RasterImageFormat};
+use openjp2::{
+    ColorSpace, Decoder, EncodeOptions, Encoder, Format as Jpeg2000Format, Image, ImageComponent,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
@@ -22,6 +27,10 @@ pub enum ImageFormat {
     Tiff,
     Pgm,
     Raw,
+    Wsq,
+    Jpeg2000,
+    Jpeg,
+    Bmp,
 }
 
 impl std::fmt::Display for ImageFormat {
@@ -31,6 +40,10 @@ impl std::fmt::Display for ImageFormat {
             Self::Tiff => write!(f, "tiff"),
             Self::Pgm => write!(f, "pgm"),
             Self::Raw => write!(f, "raw"),
+            Self::Wsq => write!(f, "wsq"),
+            Self::Jpeg2000 => write!(f, "jp2"),
+            Self::Jpeg => write!(f, "jpeg"),
+            Self::Bmp => write!(f, "bmp"),
         }
     }
 }
@@ -44,6 +57,10 @@ impl std::str::FromStr for ImageFormat {
             "tiff" | "tif" => Ok(Self::Tiff),
             "pgm" => Ok(Self::Pgm),
             "raw" | "dat" => Ok(Self::Raw),
+            "wsq" => Ok(Self::Wsq),
+            "jp2" | "jpeg2000" => Ok(Self::Jpeg2000),
+            "jpeg" | "jpg" => Ok(Self::Jpeg),
+            "bmp" => Ok(Self::Bmp),
             other => Err(CoreError::UnsupportedFormat(other.to_string())),
         }
     }
@@ -57,6 +74,10 @@ impl ImageFormat {
             "tiff" | "tif" => Some(Self::Tiff),
             "pgm" => Some(Self::Pgm),
             "raw" | "dat" => Some(Self::Raw),
+            "wsq" => Some(Self::Wsq),
+            "jp2" => Some(Self::Jpeg2000),
+            "jpeg" | "jpg" => Some(Self::Jpeg),
+            "bmp" => Some(Self::Bmp),
             _ => None,
         }
     }
@@ -65,7 +86,7 @@ impl ImageFormat {
         let p = path.as_ref();
         if let Ok(mut f) = fs::File::open(p) {
             use std::io::Read;
-            let mut magic = [0u8; 8];
+            let mut magic = [0u8; 12];
             if let Ok(n) = f.read(&mut magic) {
                 if n >= 8 && &magic[0..8] == b"\x89PNG\r\n\x1a\n" {
                     return Ok(Self::Png);
@@ -75,6 +96,22 @@ impl ImageFormat {
                 }
                 if n >= 2 && &magic[0..2] == b"P5" {
                     return Ok(Self::Pgm);
+                }
+                if n >= 4 && magic[0..4] == [0xff, 0xa0, 0xff, 0xa8] {
+                    return Ok(Self::Wsq);
+                }
+                if n >= 12 && magic[0..12] == [0, 0, 0, 12, b'j', b'P', b' ', b' ', 13, 10, 135, 10]
+                {
+                    return Ok(Self::Jpeg2000);
+                }
+                if n >= 2 && magic[0..2] == [0xff, 0x4f] {
+                    return Ok(Self::Jpeg2000);
+                }
+                if n >= 3 && magic[0..3] == [0xff, 0xd8, 0xff] {
+                    return Ok(Self::Jpeg);
+                }
+                if n >= 2 && &magic[0..2] == b"BM" {
+                    return Ok(Self::Bmp);
                 }
             }
         }
@@ -127,6 +164,10 @@ pub enum CoreError {
     Png(#[from] png::DecodingError),
     #[error(transparent)]
     Encoding(#[from] png::EncodingError),
+    #[error(transparent)]
+    Raster(#[from] image::ImageError),
+    #[error("image codec error: {0}")]
+    Codec(String),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 }
@@ -426,6 +467,11 @@ impl RawFrame {
             ImageFormat::Tiff => Self::from_tiff(p),
             ImageFormat::Pgm => Self::from_pgm(p),
             ImageFormat::Raw => Self::from_raw_bytes_file(p),
+            ImageFormat::Wsq => crate::decode_wsq(&fs::read(p)?)
+                .map_err(|error| CoreError::Codec(error.to_string())),
+            ImageFormat::Jpeg2000 => Self::from_jpeg2000(p),
+            ImageFormat::Jpeg => Self::from_jpeg(p),
+            ImageFormat::Bmp => Self::from_bmp(p),
         }
     }
 
@@ -439,6 +485,10 @@ impl RawFrame {
             ImageFormat::Tiff => self.write_tiff(path),
             ImageFormat::Pgm => self.write_pgm(path),
             ImageFormat::Raw => self.write_raw_bytes(path),
+            ImageFormat::Wsq => self.write_wsq(path),
+            ImageFormat::Jpeg2000 => self.write_jpeg2000(path),
+            ImageFormat::Jpeg => self.write_jpeg(path),
+            ImageFormat::Bmp => self.write_bmp(path),
         }
     }
 
@@ -474,6 +524,205 @@ impl RawFrame {
         }));
         let mut writer = encoder.write_header()?;
         writer.write_image_data(self.pixels())?;
+        Ok(())
+    }
+
+    pub fn from_jpeg(path: impl AsRef<Path>) -> Result<Self, CoreError> {
+        Self::from_raster_bytes(&fs::read(path)?, RasterImageFormat::Jpeg)
+    }
+
+    pub fn write_jpeg(&self, path: impl AsRef<Path>) -> Result<(), CoreError> {
+        let mut encoded = Vec::new();
+        let mut encoder = JpegEncoder::new_with_quality(&mut encoded, 95);
+        encoder.set_pixel_density(PixelDensity::dpi(DPI));
+        encoder.encode(self.pixels(), WIDTH, HEIGHT, ExtendedColorType::L8)?;
+        fs::write(path, encoded)?;
+        Ok(())
+    }
+
+    fn from_raster_bytes(bytes: &[u8], format: RasterImageFormat) -> Result<Self, CoreError> {
+        let image = image::load_from_memory_with_format(bytes, format)?;
+        if image.color() != image::ColorType::L8 {
+            return Err(CoreError::Codec("expected an 8-bit grayscale image".into()));
+        }
+        if image.width() != WIDTH || image.height() != HEIGHT {
+            return Err(CoreError::InvalidFrame {
+                width: image.width(),
+                height: image.height(),
+                dpi: DPI,
+                len: image.as_bytes().len(),
+            });
+        }
+        Self::new(image.into_luma8().into_raw())
+    }
+
+    pub fn write_wsq(&self, path: impl AsRef<Path>) -> Result<(), CoreError> {
+        let encoded = crate::encode_wsq(self, 0.75, DPI)
+            .map_err(|error| CoreError::Codec(error.to_string()))?;
+        fs::write(path, encoded)?;
+        Ok(())
+    }
+
+    pub fn from_jpeg2000(path: impl AsRef<Path>) -> Result<Self, CoreError> {
+        let data = fs::read(path)?;
+        let format = Jpeg2000Format::detect(&data)
+            .ok_or_else(|| CoreError::Codec("unrecognized JPEG 2000 stream".into()))?;
+        let decoded = Decoder::new(format)
+            .and_then(|mut decoder| decoder.decode(data))
+            .map_err(|error| CoreError::Codec(error.to_string()))?;
+        let component = decoded
+            .components
+            .first()
+            .ok_or_else(|| CoreError::Codec("JPEG 2000 image has no grayscale component".into()))?;
+        if decoded.width != WIDTH
+            || decoded.height != HEIGHT
+            || decoded.components.len() != 1
+            || component.width != WIDTH
+            || component.height != HEIGHT
+            || component.precision != 8
+            || component.signed
+        {
+            return Err(CoreError::InvalidFrame {
+                width: decoded.width,
+                height: decoded.height,
+                dpi: DPI,
+                len: component.data.len(),
+            });
+        }
+        let pixels = component
+            .data
+            .iter()
+            .map(|&sample| {
+                u8::try_from(sample)
+                    .map_err(|_| CoreError::Codec("JPEG 2000 sample is outside 8-bit range".into()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Self::new(pixels)
+    }
+
+    pub fn write_jpeg2000(&self, path: impl AsRef<Path>) -> Result<(), CoreError> {
+        let image = Image::new(
+            WIDTH,
+            HEIGHT,
+            ColorSpace::Greyscale,
+            vec![
+                ImageComponent::new(
+                    WIDTH,
+                    HEIGHT,
+                    8,
+                    false,
+                    self.pixels()
+                        .iter()
+                        .map(|&pixel| i32::from(pixel))
+                        .collect(),
+                )
+                .map_err(|error| CoreError::Codec(error.to_string()))?,
+            ],
+        )
+        .map_err(|error| CoreError::Codec(error.to_string()))?;
+        let mut encoded = Encoder::encode(
+            &image,
+            &EncodeOptions {
+                format: Jpeg2000Format::Jp2,
+                irreversible: false,
+                rates: vec![0.0],
+                ..Default::default()
+            },
+        )
+        .map_err(|error| CoreError::Codec(error.to_string()))?;
+        insert_jp2_resolution_box(&mut encoded)?;
+        fs::write(path, encoded)?;
+        Ok(())
+    }
+
+    pub fn from_bmp(path: impl AsRef<Path>) -> Result<Self, CoreError> {
+        let bytes = fs::read(path)?;
+        if bytes.len() < 14 + 40 + 256 * 4 || &bytes[0..2] != b"BM" {
+            return Err(CoreError::Codec("invalid BMP header".into()));
+        }
+        let read_u16 = |offset| u16::from_le_bytes([bytes[offset], bytes[offset + 1]]);
+        let read_i32 = |offset| i32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+        let read_u32 = |offset| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+        let data_offset = read_u32(10) as usize;
+        let dib_size = read_u32(14) as usize;
+        let width = read_i32(18);
+        let height = read_i32(22);
+        if dib_size < 40
+            || width != WIDTH as i32
+            || height.unsigned_abs() != HEIGHT
+            || read_u16(26) != 1
+            || read_u16(28) != 8
+            || read_u32(30) != 0
+        {
+            return Err(CoreError::Codec(
+                "expected an uncompressed 320x480 8-bit grayscale BMP".into(),
+            ));
+        }
+        let palette_start = 14 + dib_size;
+        if bytes.len() < palette_start + 256 * 4 {
+            return Err(CoreError::Codec(
+                "BMP grayscale palette is truncated".into(),
+            ));
+        }
+        for value in 0..256usize {
+            let entry = palette_start + value * 4;
+            if bytes[entry] != value as u8
+                || bytes[entry + 1] != value as u8
+                || bytes[entry + 2] != value as u8
+            {
+                return Err(CoreError::Codec(
+                    "BMP palette is not 8-bit grayscale".into(),
+                ));
+            }
+        }
+        let stride = (WIDTH as usize + 3) & !3;
+        if data_offset
+            .checked_add(stride * HEIGHT as usize)
+            .is_none_or(|end| end > bytes.len())
+        {
+            return Err(CoreError::Codec("BMP pixel data is truncated".into()));
+        }
+        let mut pixels = vec![0; FRAME_LEN];
+        for row in 0..HEIGHT as usize {
+            let source_row = if height > 0 {
+                HEIGHT as usize - 1 - row
+            } else {
+                row
+            };
+            let source = data_offset + source_row * stride;
+            pixels[row * WIDTH as usize..(row + 1) * WIDTH as usize]
+                .copy_from_slice(&bytes[source..source + WIDTH as usize]);
+        }
+        Self::new(pixels)
+    }
+
+    pub fn write_bmp(&self, path: impl AsRef<Path>) -> Result<(), CoreError> {
+        const HEADER_LEN: usize = 14 + 40 + 256 * 4;
+        let file_len = HEADER_LEN + FRAME_LEN;
+        let mut bytes = vec![0; file_len];
+        bytes[0..2].copy_from_slice(b"BM");
+        bytes[2..6].copy_from_slice(&(file_len as u32).to_le_bytes());
+        bytes[10..14].copy_from_slice(&(HEADER_LEN as u32).to_le_bytes());
+        bytes[14..18].copy_from_slice(&40u32.to_le_bytes());
+        bytes[18..22].copy_from_slice(&(WIDTH as i32).to_le_bytes());
+        bytes[22..26].copy_from_slice(&(HEIGHT as i32).to_le_bytes());
+        bytes[26..28].copy_from_slice(&1u16.to_le_bytes());
+        bytes[28..30].copy_from_slice(&8u16.to_le_bytes());
+        bytes[34..38].copy_from_slice(&(FRAME_LEN as u32).to_le_bytes());
+        bytes[38..42].copy_from_slice(&19_685i32.to_le_bytes());
+        bytes[42..46].copy_from_slice(&19_685i32.to_le_bytes());
+        bytes[46..50].copy_from_slice(&256u32.to_le_bytes());
+        for value in 0..256usize {
+            let entry = 54 + value * 4;
+            bytes[entry..entry + 3].fill(value as u8);
+        }
+        for row in 0..HEIGHT as usize {
+            let destination_row = HEIGHT as usize - 1 - row;
+            let destination = HEADER_LEN + destination_row * WIDTH as usize;
+            bytes[destination..destination + WIDTH as usize]
+                .copy_from_slice(&self.pixels()[row * WIDTH as usize..(row + 1) * WIDTH as usize]);
+        }
+        fs::write(path, bytes)?;
         Ok(())
     }
 
@@ -671,6 +920,34 @@ impl RawFrame {
         let data = fs::read(path)?;
         Self::new(data)
     }
+}
+
+fn insert_jp2_resolution_box(bytes: &mut Vec<u8>) -> Result<(), CoreError> {
+    let mut offset = 0usize;
+    while offset.checked_add(8).is_some_and(|end| end <= bytes.len()) {
+        let length = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+        if length < 8
+            || offset
+                .checked_add(length)
+                .is_none_or(|end| end > bytes.len())
+        {
+            return Err(CoreError::Codec("invalid JP2 box layout".into()));
+        }
+        if &bytes[offset + 4..offset + 8] == b"jp2h" {
+            let resolution_box = [
+                0, 0, 0, 26, b'r', b'e', b's', b' ', 0, 0, 0, 18, b'r', b'e', b's', b'c', 0x01,
+                0xf4, 0, 1, 0x01, 0xf4, 0, 1, 0, 0,
+            ];
+            let expanded = length
+                .checked_add(resolution_box.len())
+                .ok_or_else(|| CoreError::Codec("JP2 header size overflow".into()))?;
+            bytes[offset..offset + 4].copy_from_slice(&(expanded as u32).to_be_bytes());
+            bytes.splice(offset + length..offset + length, resolution_box);
+            return Ok(());
+        }
+        offset += length;
+    }
+    Err(CoreError::Codec("JP2 header box is missing".into()))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -981,6 +1258,36 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_extended_codecs_round_trip() {
+        let pixels = (0..FRAME_LEN)
+            .map(|index| ((index / WIDTH as usize + index % WIDTH as usize) % 256) as u8)
+            .collect();
+        let frame = RawFrame::new(pixels).unwrap();
+        let tmp_dir = tempfile::tempdir().unwrap();
+
+        let bmp = tmp_dir.path().join("sample.bmp");
+        frame.write_bmp(&bmp).unwrap();
+        assert_eq!(RawFrame::from_file(&bmp).unwrap().sha256(), frame.sha256());
+
+        let jp2 = tmp_dir.path().join("sample.jp2");
+        frame.write_jpeg2000(&jp2).unwrap();
+        assert_eq!(RawFrame::from_file(&jp2).unwrap().sha256(), frame.sha256());
+
+        let jpeg = tmp_dir.path().join("sample.jpeg");
+        frame.write_jpeg(&jpeg).unwrap();
+        let decoded = RawFrame::from_file(&jpeg).unwrap();
+        assert_eq!(decoded.pixels().len(), FRAME_LEN);
+        let mae = frame
+            .pixels()
+            .iter()
+            .zip(decoded.pixels())
+            .map(|(&left, &right)| left.abs_diff(right) as u64)
+            .sum::<u64>() as f64
+            / FRAME_LEN as f64;
+        assert!(mae < 3.0, "JPEG mean absolute error was {mae}");
     }
 
     #[test]

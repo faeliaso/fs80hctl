@@ -819,7 +819,8 @@ fn handle_verify(
                     }
                     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                         match ext.to_ascii_lowercase().as_str() {
-                            "png" | "tiff" | "tif" | "pgm" | "raw" | "dat" => {
+                            "png" | "tiff" | "tif" | "pgm" | "raw" | "dat" | "wsq" | "jp2"
+                            | "jpg" | "jpeg" | "bmp" => {
                                 if let Ok(frame) = RawFrame::from_file(&path) {
                                     candidates.push((path.display().to_string(), frame));
                                 }
@@ -1107,6 +1108,9 @@ fn tool_format_from_path(path: &std::path::Path) -> Result<ToolImageFormat, CliE
         Some("raw") | Some("dat") => Ok(ToolImageFormat::Raw),
         Some("png") => Ok(ToolImageFormat::Png),
         Some("wsq") => Ok(ToolImageFormat::Wsq),
+        Some("jp2") => Ok(ToolImageFormat::Jpeg2000),
+        Some("jpg") | Some("jpeg") => Ok(ToolImageFormat::Jpeg),
+        Some("bmp") => Ok(ToolImageFormat::Bmp),
         _ => Err(CliError::Operational(format!(
             "cannot infer tool image format from {}",
             path.display()
@@ -1116,7 +1120,11 @@ fn tool_format_from_path(path: &std::path::Path) -> Result<ToolImageFormat, CliE
 
 fn load_tool_frame(path: &std::path::Path, format: ToolImageFormat) -> Result<RawFrame, CliError> {
     match format {
-        ToolImageFormat::Raw | ToolImageFormat::Png => RawFrame::from_file(path).map_err(|error| {
+        ToolImageFormat::Raw
+        | ToolImageFormat::Png
+        | ToolImageFormat::Jpeg2000
+        | ToolImageFormat::Jpeg
+        | ToolImageFormat::Bmp => RawFrame::from_file(path).map_err(|error| {
             CliError::Operational(format!("failed to load {}: {error}", path.display()))
         }),
         ToolImageFormat::Wsq => decode_wsq(&std::fs::read(path).map_err(|error| {
@@ -1147,6 +1155,21 @@ fn write_tool_frame(
                 CliError::Operational(format!("failed to write {}: {error}", path.display()))
             })
         }
+        ToolImageFormat::Jpeg2000 => {
+            frame
+                .write_format(path, ImageFormat::Jpeg2000)
+                .map_err(|error| {
+                    CliError::Operational(format!("failed to write {}: {error}", path.display()))
+                })
+        }
+        ToolImageFormat::Jpeg => frame
+            .write_format(path, ImageFormat::Jpeg)
+            .map_err(|error| {
+                CliError::Operational(format!("failed to write {}: {error}", path.display()))
+            }),
+        ToolImageFormat::Bmp => frame.write_format(path, ImageFormat::Bmp).map_err(|error| {
+            CliError::Operational(format!("failed to write {}: {error}", path.display()))
+        }),
     }
 }
 

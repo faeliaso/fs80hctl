@@ -1,6 +1,6 @@
 # fs80hctl
 
-Technical Rust CLI for the Futronic FS80/FS80H fingerprint scanner, designed for optical frame acquisition, forensic image processing, standard biometric formats (TIFF 500 DPI, NIST PGM, RAW, PNG), chain-of-custody tracking, and 1:1 biometric comparison.
+Technical Rust CLI for the Futronic FS80/FS80H fingerprint scanner, designed for optical frame acquisition, forensic image processing, standard biometric formats (PNG, TIFF, PGM, RAW, WSQ, JPEG 2000, JPEG, BMP), chain-of-custody tracking, and 1:1 biometric comparison.
 
 > Results provided by this tool are technical similarity indicators. They do not
 > constitute civil identification, forensic expert reports, or certified liveness/
@@ -17,13 +17,17 @@ Technical Rust CLI for the Futronic FS80/FS80H fingerprint scanner, designed for
   - **TIFF Baseline 6.0**: 500 DPI with full forensic EXIF tags (`ResolutionUnit=Inch`, `XResolution=500`, `YResolution=500`, `Software`, `Make="Futronic"`, `Model="FS80H"`).
   - **PGM (Netpbm P5 binary)**: Direct binary input format for NIST NBIS reference tools (`mindtct`, `bozorth3`).
   - **RAW / DAT**: Uncompressed 153,600-byte L8 dump for NumPy, PyTorch, and machine learning pipelines.
+  - **WSQ**: Pure-Rust fingerprint compression at 500 DPI (default bitrate 0.75).
+  - **JPEG 2000 / JP2**: Lossless L8 output at 500 DPI.
+  - **JPEG**: Grayscale quality-95 derivative with 500 DPI JFIF density; lossy.
+  - **BMP**: Uncompressed L8 grayscale palette at 500 DPI.
 - **Forensic Transcoder (`convert`)**: Bidirectional conversion across all supported formats with custody preservation (`.meta.json`).
 - **Technical Image Inspection (`inspect`)**: Inspect detected format, dimensions, SHA-256 buffer hash, local quality metrics, and custody history.
 - **Immutable Chain of Custody**: SHA-256 computed on the raw optical sensor buffer and preserved in an adjacent `.meta.json` manifest.
 - **Native Quality Assessment**: Mean local variance across 16×16 blocks and sensor saturation ratio analysis.
 - **Biometric Verification (`verify`)**: Deterministic spatial minutiae comparison supporting 1:1 pairwise matching and 1:N gallery identification against directories.
 - **Forensic Analysis (`forensic`)**: Minutiae annotation, corroborated-pair comparison, JSON reporting, and static liveness screening for authorized technical evaluation.
-- **Image Tools (`tool`)**: Gabor enhancement, RAW/PNG/WSQ interchange conversion, and deterministic synthetic benchmarks.
+- **Image Tools (`tool`)**: Gabor enhancement, supported-format interchange conversion, and deterministic synthetic benchmarks.
 - **Environment Diagnostics (`doctor`)**: Verifies USB subsystem, scanner permissions, and filesystem write access.
 - **100% Pure Rust Ecosystem**: Zero C bridges, vendored ABI bundles, or dynamic library dependencies (`libtiff`/`libpng`).
 
@@ -204,7 +208,7 @@ cargo run -p fs80h-cli -- forensic compare --probe probe.png --reference referen
 cargo run -p fs80h-cli -- forensic report capture.png
 cargo run -p fs80h-cli -- --json forensic liveness capture.png
 
-# Enhance a frame, convert among RAW/PNG/WSQ, or benchmark synthetic work
+# Enhance a frame, convert among supported formats, or benchmark synthetic work
 cargo run -p fs80h-cli -- tool enhance --input capture.png --output enhanced.png
 cargo run -p fs80h-cli -- tool convert --input capture.png --output capture.wsq
 cargo run -p fs80h-cli -- --json tool bench matching --templates 50000
