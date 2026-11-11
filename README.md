@@ -1,247 +1,278 @@
-# fs80hctl
+<p align="center">
+  <img src="assets/fs80h.png" alt="Futronic FS80H fingerprint scanner" width="128">
+</p>
 
-Technical Rust CLI for the Futronic FS80/FS80H fingerprint scanner, designed for optical frame acquisition, forensic image processing, standard biometric formats (PNG, TIFF, PGM, RAW, WSQ, JPEG 2000, JPEG, BMP), chain-of-custody tracking, and 1:1 biometric comparison.
+<h1 align="center">fs80hctl</h1>
 
-> Results provided by this tool are technical similarity indicators. They do not
-> constitute civil identification, forensic expert reports, or certified liveness/
-> anti-spoofing results. The static liveness screen is an engineering heuristic,
-> not a presentation-attack-detection (PAD) claim.
+<p align="center">
+  Technical control and image-processing CLI for Futronic optical fingerprint scanners.
+</p>
+
+<p align="center">
+  Capture 500 DPI optical frames, preserve their technical custody metadata, inspect and convert biometric images, and run deterministic 1:1 or 1:N comparisons.
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#installation">Installation</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#development">Development</a> ·
+  <a href="#documentation">Documentation</a>
+</p>
+
+---
+
+## What is fs80hctl?
+
+`fs80hctl` is a Rust command-line tool for technical control of Futronic FS80, FS80H, and FS81H optical fingerprint scanners. It is intended for operators and developers who need local acquisition, image conversion, diagnostics, technical quality analysis, or deterministic biometric-image comparison.
+
+It captures 320×480, 8-bit grayscale frames at 500 DPI and records a SHA-256 hash of the raw sensor buffer in an adjacent custody manifest. The CLI also works with supported image files without a connected scanner.
+
+> [!WARNING]
+> The comparison and liveness outputs are technical engineering indicators. They are not civil identification, expert forensic reports, or certified presentation-attack-detection (PAD) results. Do not use this tool as the only authentication factor for critical physical or financial access.
+
+## Why fs80hctl?
+
+### The problem
+
+Using a scanner in a technical workflow often requires separate tools for USB diagnostics, capture, format conversion, image inspection, and custody tracking. Those steps can make automation and repeatability harder.
+
+### The approach
+
+`fs80hctl` provides these operations through one local CLI. Its hardware-independent image and matching logic remains separate from the USB driver, and all automated tests use synthetic fixtures rather than real biometric data.
 
 ## Features
 
-- **USB Scanner Discovery**: Automatic detection of Futronic FS80, FS80H, and FS81H devices.
-- **Optical Frame Capture with Presence Detection (`capture`)**: 320×480 resolution, 8-bit grayscale (L8) @ 500 DPI with optional `--wait` auto-trigger and quality threshold gating.
-- **Multi-Sample Assisted Enrollment (`enroll`)**: Guided best-of-N frame acquisition electing the highest quality sample automatically.
-- **Forensic & Biometric Image Formats**:
-  - **PNG**: 8-bit grayscale with `pHYs` chunk calibrated to 500 DPI (19,685 px/m).
-  - **TIFF Baseline 6.0**: 500 DPI with full forensic EXIF tags (`ResolutionUnit=Inch`, `XResolution=500`, `YResolution=500`, `Software`, `Make="Futronic"`, `Model="FS80H"`).
-  - **PGM (Netpbm P5 binary)**: Direct binary input format for NIST NBIS reference tools (`mindtct`, `bozorth3`).
-  - **RAW / DAT**: Uncompressed 153,600-byte L8 dump for NumPy, PyTorch, and machine learning pipelines.
-  - **WSQ**: Pure-Rust fingerprint compression at 500 DPI (default bitrate 0.75).
-  - **JPEG 2000 / JP2**: Lossless L8 output at 500 DPI.
-  - **JPEG**: Grayscale quality-95 derivative with 500 DPI JFIF density; lossy.
-  - **BMP**: Uncompressed L8 grayscale palette at 500 DPI.
-- **Forensic Transcoder (`convert`)**: Bidirectional conversion across all supported formats with custody preservation (`.meta.json`).
-- **Technical Image Inspection (`inspect`)**: Inspect detected format, dimensions, SHA-256 buffer hash, local quality metrics, and custody history.
-- **Immutable Chain of Custody**: SHA-256 computed on the raw optical sensor buffer and preserved in an adjacent `.meta.json` manifest.
-- **Native Quality Assessment**: Mean local variance across 16×16 blocks and sensor saturation ratio analysis.
-- **Biometric Verification (`verify`)**: Deterministic spatial minutiae comparison supporting 1:1 pairwise matching and 1:N gallery identification against directories.
-- **Forensic Analysis (`forensic`)**: Minutiae annotation, corroborated-pair comparison, JSON reporting, and static liveness screening for authorized technical evaluation.
-- **Image Tools (`tool`)**: Gabor enhancement, supported-format interchange conversion, and deterministic synthetic benchmarks.
-- **Environment Diagnostics (`doctor`)**: Verifies USB subsystem, scanner permissions, and filesystem write access.
-- **100% Pure Rust Ecosystem**: Zero C bridges, vendored ABI bundles, or dynamic library dependencies (`libtiff`/`libpng`).
+### Acquisition and device control
+
+- **USB discovery and inspection** — lists supported Futronic devices and can open a selected bus and address.
+- **Optical capture** — saves immediate frames or waits for finger presence with timeout and quality gating.
+- **Best-of-N enrollment** — captures several samples and selects the highest-quality frame.
+- **Capture daemon** — keeps a Unix-domain socket service available for low-latency capture requests.
+- **Environment diagnostics** — checks the USB subsystem, device permissions, udev rules, groups, filesystem access, and NFIQ 2 availability.
+
+### Images, integrity, and analysis
+
+- **Supported formats** — PNG, TIFF, PGM, RAW/DAT, WSQ, JPEG 2000/JP2, JPEG, and BMP.
+- **Forensic transcoding** — converts between supported formats while preserving the custody lineage in `.meta.json` manifests.
+- **Technical inspection** — reports dimensions, DPI, the SHA-256 buffer hash, image quality metrics, and custody history.
+- **Local quality metrics** — evaluates mean local variance and sensor saturation.
+- **Image tools** — provide Gabor enhancement, format interchange, and deterministic synthetic benchmarks.
+
+### Comparison and forensic utilities
+
+- **Verification** — performs deterministic 1:1 comparison or 1:N gallery search.
+- **Forensic commands** — annotate minutiae, compare corroborated pairs, emit JSON reports, and run a static liveness heuristic for authorized technical evaluation.
+- **Structured output** — commands that produce structured results support the global `--json` option.
+
+## Use cases
+
+- Verify scanner connectivity and user permissions before an acquisition session.
+- Capture an optical frame as a 500 DPI TIFF or PNG with an integrity manifest.
+- Convert a capture to PGM for an external NIST NBIS workflow.
+- Inspect an image and its custody metadata before sending it to an authorized technical process.
+- Compare a probe image against a reference file or an enrolled-image directory.
 
 ## Requirements
 
-- Rust/Cargo compatible with the 2024 edition.
+### To use the CLI
+
 - macOS or Linux.
-- For physical capture: Futronic FS80/FS80H device connected via USB.
+- A Futronic FS80, FS80H, or FS81H connected by USB for device operations and capture.
+- On Linux, access to the Futronic USB device. The release installer configures the included udev rules.
 
-The workspace uses the pure-Rust [`futronic-fs80h-rs`](https://crates.io/crates/futronic-fs80h-rs) driver published on crates.io.
-No proprietary vendor SDKs or dynamic libraries need to be installed.
+No proprietary Futronic SDK or dynamic image libraries are required. The project uses the pure-Rust [`futronic-fs80h-rs`](https://crates.io/crates/futronic-fs80h-rs) driver.
 
-## Building and Testing
+### To develop or build from source
 
-```sh
-cd /Volumes/MAIN/Workspace/fs80hctl
-cargo check --workspace
-cargo test --workspace
-```
+- Rust and Cargo compatible with the Rust 2024 edition.
+- For physical scanner testing, `libusb-1.0` and `pkg-config`; see [TESTING.md](TESTING.md).
 
-To validate with a connected physical scanner, refer to [`TESTING.md`](TESTING.md).
+## Installation
 
-Automated tests run on synthetic fixtures and pass 100% without any connected hardware.
-
-## CLI Usage
-
-Execute the CLI directly via Cargo or installed binary:
+### macOS with Homebrew
 
 ```sh
-cargo run -p fs80h-cli -- <command>
+brew install faeliaso/tap/fs80hctl
 ```
 
-For the comprehensive technical manual and flag specification, see [`docs/MANUAL.md`](docs/MANUAL.md) or execute the built-in manual:
+### Linux release installer
+
+The installer supports `x86_64` and `aarch64`. It downloads the latest GitHub release, verifies its checksum, installs the binary, and configures the Futronic udev rules. It requires `curl`, `tar`, `sha256sum`, `udevadm`, and administrator privileges.
 
 ```sh
-cargo run -p fs80h-cli -- manual
-cargo run -p fs80h-cli -- --help
-cargo run -p fs80h-cli -- --version
+curl -fLO https://raw.githubusercontent.com/faeliaso/fs80hctl/main/scripts/install.sh
+sudo bash install.sh
 ```
 
----
-
-### Environment Diagnostics (`doctor`)
-
-Inspects USB subsystem health, device access permissions, and write availability:
+### Build from source
 
 ```sh
-cargo run -p fs80h-cli -- doctor
-cargo run -p fs80h-cli -- --json doctor
+git clone https://github.com/faeliaso/fs80hctl.git
+cd fs80hctl
+cargo build --release --workspace
+./target/release/fs80hctl --version
 ```
 
----
+## Quick Start
 
-### Device Discovery & Inspection
+After installation, check the environment and discover connected scanners:
 
 ```sh
-# List connected fingerprint scanners
-cargo run -p fs80h-cli -- devices
-
-# Inspect USB communication with the first available device
-cargo run -p fs80h-cli -- device inspect
-
-# Select a specific device by USB bus and address
-cargo run -p fs80h-cli -- device inspect --bus 1 --address 1
+fs80hctl doctor
+fs80hctl devices
 ```
 
----
-
-### Capture (`capture`)
-
-Acquire a fingerprint directly into your desired format:
+Capture a PNG image and inspect it:
 
 ```sh
-# Standard AFIS PNG (immediate capture)
-cargo run -p fs80h-cli -- capture --output capture.png
-
-# Smart Auto-Trigger: waits for finger presence and contact stabilization
-cargo run -p fs80h-cli -- capture --wait --timeout 15 --min-quality 60 --output capture.png
-
-# Direct forensic TIFF (500 DPI)
-cargo run -p fs80h-cli -- capture --format tiff --output forensic.tiff
-
-# Direct NIST Netpbm PGM
-cargo run -p fs80h-cli -- capture --format pgm --output print.pgm
-
-# Raw optical sensor signal (light ridges on dark background, without inversion)
-cargo run -p fs80h-cli -- capture --raw --output capture_raw.png
+fs80hctl capture --output capture.png
+fs80hctl inspect capture.png
 ```
 
-Every capture generates the image file and its associated custody manifest:
+The capture creates both the image and an adjacent manifest:
+
 ```text
-forensic.tiff
-forensic.tiff.meta.json
+capture.png
+capture.png.meta.json
 ```
 
----
+Use `cargo run -p fs80h-cli -- <command>` in place of `fs80hctl <command>` when running from a source checkout without installing the binary.
 
-### Multi-Sample Enrollment (`enroll`)
+## Usage
 
-Acquire multiple samples sequentially, evaluate each frame's quality, and elect the best-quality sample:
+### Common commands
+
+| Command | Description |
+| --- | --- |
+| `fs80hctl doctor` | Diagnose the local USB, permissions, udev, and filesystem setup. |
+| `fs80hctl devices` | List supported scanners connected through USB. |
+| `fs80hctl device inspect` | Open and inspect the first available scanner. |
+| `fs80hctl capture --output capture.png` | Capture an optical frame. |
+| `fs80hctl enroll --output master.png` | Acquire the default three samples and save the highest-quality image. |
+| `fs80hctl convert input.png --to tiff --output output.tiff` | Convert an image while preserving custody lineage. |
+| `fs80hctl inspect input.tiff` | Report image and manifest information. |
+| `fs80hctl verify probe.png reference.png --threshold 40` | Run a 1:1 technical comparison. |
+| `fs80hctl serve` | Start the Unix-domain socket capture daemon. |
+
+### Capture and enrollment
 
 ```sh
-# Enroll with 3 samples (default: 3 samples, elects highest quality)
-cargo run -p fs80h-cli -- enroll --output master.png
+# Wait for a stable finger contact for up to 15 seconds.
+fs80hctl capture --wait --timeout 15 --min-quality 60 --output capture.png
 
-# Enroll with 5 samples in forensic TIFF format with custom quality threshold
-cargo run -p fs80h-cli -- enroll --samples 5 --timeout 20 --min-quality 65 --format tiff --output master.tiff
+# Capture directly as a 500 DPI TIFF.
+fs80hctl capture --image-format tiff --output forensic.tiff
 
-# Output structured enrollment JSON
-cargo run -p fs80h-cli -- --json enroll --samples 3 --output master.png
+# Select the best frame from five samples.
+fs80hctl enroll --samples 5 --timeout 20 --min-quality 65 --output master.png
 ```
 
----
-
-### Format Transcoding (`convert`)
-
-Convert bidirectionally between any pair of formats while propagating root custody:
+### Conversion and comparison
 
 ```sh
-# PNG to Forensic TIFF (500 DPI)
-cargo run -p fs80h-cli -- convert capture.png --to tiff --output digital.tiff
+# Convert to Netpbm PGM for compatible external tooling.
+fs80hctl convert capture.png --to pgm --output capture.pgm
 
-# TIFF to Netpbm PGM
-cargo run -p fs80h-cli -- convert digital.tiff --to pgm --output digital.pgm
+# Search a directory of enrolled images.
+fs80hctl verify probe.png --gallery ./enrolled-users --threshold 40
 
-# PGM to raw binary dump (153,600 bytes)
-cargo run -p fs80h-cli -- convert digital.pgm --to raw --output digital.raw
+# Emit structured output for an automation pipeline.
+fs80hctl --json inspect capture.png
 ```
 
----
+`forensic compare` requires at least six geometrically consistent minutiae pairs before it can report a non-zero score. The static liveness heuristic exits with code `4` below its threshold and is not validated to ISO/IEC 30107-3 or LivDet.
 
-### Technical Inspection (`inspect`)
+For every command and flag, run `fs80hctl --help` or read the [technical manual](docs/MANUAL.md).
 
-Inspect dimensions, detected format, DPI, SHA-256 buffer hash, and quality metrics:
+## Architecture
+
+The repository is a Rust workspace with three crates. `fs80h-core` has no USB or native hardware dependency; the CLI composes the core logic and the USB driver.
+
+```mermaid
+flowchart LR
+    CLI[fs80hctl CLI] --> CORE[fs80h-core<br/>codecs, quality, custody, matching]
+    CLI --> DRIVER[fs80h-driver]
+    DRIVER --> FUTRONIC[futronic-fs80h-rs / USB scanner]
+    CLI --> SOCKET[Unix-domain socket daemon]
+    CORE --> ARTIFACTS[images and .meta.json manifests]
+```
+
+| Layer | Technology | Responsibility |
+| --- | --- | --- |
+| CLI | Rust, Clap, Tokio | Command parsing, JSON output, orchestration, and daemon service. |
+| Core | Rust | Image codecs, quality metrics, SHA-256 custody manifests, minutiae analysis, and comparison. |
+| Driver | `futronic-fs80h-rs`, `rusb` | Futronic USB-device discovery and transport. |
+| Operations | udev, systemd | Linux device permissions and optional socket activation. |
+
+## Project Structure
+
+```text
+crates/
+  fs80h-cli/       command-line interface and capture daemon
+  fs80h-core/      hardware-independent image and biometric logic
+  fs80h-driver/    Futronic USB-driver integration
+docs/              technical, validation, NFIQ 2, and fuzzing guides
+tests/             hardware-free tests and approved synthetic fixtures
+scripts/           installation, validation, and physical-test scripts
+udev/              Linux USB permission rules
+systemd/           optional Linux capture-daemon units
+man/               fs80hctl man page
+```
+
+## Security and Biometric Data
+
+- Capture only with the operator's explicit command and appropriate authorization.
+- Keep real biometric images and generated manifests out of the repository.
+- Store sensitive captures only in restricted locations and dispose of them after their technical purpose is complete.
+- Report vulnerabilities privately; do not disclose potential data leaks in public issues.
+
+See [SECURITY.md](SECURITY.md) for the operational boundaries, biometric-data lifecycle, and responsible disclosure policy.
+
+## Development
+
+| Command | Description |
+| --- | --- |
+| `cargo check --workspace` | Type-check the workspace. |
+| `cargo test --workspace --verbose` | Run the hardware-free synthetic test suite. |
+| `cargo fmt --all -- --check` | Verify Rust formatting. |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Run Clippy with warnings treated as errors. |
+| `cargo doc --workspace --no-deps` | Build API documentation. |
+| `cargo build --release --workspace` | Build release binaries. |
+| `./scripts/check-clean-workspace.sh` | Check for biometric-data leaks in the workspace. |
+
+All automated tests use deterministic synthetic fixtures and do not require a scanner. Physical testing is separate and requires authorization:
 
 ```sh
-cargo run -p fs80h-cli -- inspect forensic.tiff
-cargo run -p fs80h-cli -- --json inspect digital.pgm
+./scripts/test-physical.sh
 ```
 
----
+Read [TESTING.md](TESTING.md) before running physical tests. The script writes captures to a temporary directory and those artifacts must be protected and safely deleted.
 
-### Biometric Verification (`verify`)
+## Documentation
 
-Compare fingerprint images across different formats:
+| Document | Contents |
+| --- | --- |
+| [docs/MANUAL.md](docs/MANUAL.md) | Command reference, options, formats, manifests, and exit codes. |
+| [TESTING.md](TESTING.md) | Hardware-free tests, physical scanner testing, and authorized dataset validation. |
+| [docs/NFIQ2_INTEGRATION.md](docs/NFIQ2_INTEGRATION.md) | Integration guide for NIST NFIQ 2. |
+| [docs/FORENSIC_BIOMETRIC_VALIDATION.md](docs/FORENSIC_BIOMETRIC_VALIDATION.md) | Procedure for authorized biometric validation. |
+| [docs/FUZZING.md](docs/FUZZING.md) | Fuzz-testing setup and commands. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution rules and engineering standards. |
+| [SECURITY.md](SECURITY.md) | Security, privacy, and vulnerability-reporting policy. |
 
-```sh
-# 1:1 Pairwise Verification (TIFF vs PNG)
-cargo run -p fs80h-cli -- verify forensic.tiff capture.png --threshold 40
+## Contributing
 
-# 1:N Gallery Identification against a directory of enrolled prints
-cargo run -p fs80h-cli -- verify probe.png --gallery ./enrolled_users/ --threshold 40
+Contributions are welcome. Keep changes focused, add deterministic tests for new behavior, and run the relevant checks before opening a pull request. Never commit real biometric data, custody manifests, or captures.
 
-# Structured JSON output (for pipelines)
-cargo run -p fs80h-cli -- --json verify probe.png --gallery ./enrolled_users/
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete contribution process and workspace rules.
 
-# Fail with non-zero exit code (1) if threshold is not met
-cargo run -p fs80h-cli -- verify forensic.tiff capture.png --threshold 40 --exit-code
-```
+## Support
 
----
+For questions, bug reports, or feature requests, open an [issue](https://github.com/faeliaso/fs80hctl/issues). For a vulnerability or suspected biometric-data exposure, follow the private reporting process in [SECURITY.md](SECURITY.md).
 
-### Forensic Analysis and Image Tools
+## License
 
-The `forensic` commands are technical aids, not identification or certified PAD
-workflows. Keep real biometric inputs and all derived artifacts outside the
-repository. The complete authorized-dataset procedure is in
-[`docs/FORENSIC_BIOMETRIC_VALIDATION.md`](docs/FORENSIC_BIOMETRIC_VALIDATION.md).
-
-```sh
-# Draw detected skeleton minutiae over a supported 320x480 image
-cargo run -p fs80h-cli -- forensic annotate --input capture.png --output annotated.png
-
-# Compare two images; exit code 2 means score or corroborated-pair support is insufficient
-cargo run -p fs80h-cli -- forensic compare --probe probe.png --reference reference.png --output comparison.png
-
-# Emit the JSON-only forensic report, or run the static liveness heuristic
-cargo run -p fs80h-cli -- forensic report capture.png
-cargo run -p fs80h-cli -- --json forensic liveness capture.png
-
-# Enhance a frame, convert among supported formats, or benchmark synthetic work
-cargo run -p fs80h-cli -- tool enhance --input capture.png --output enhanced.png
-cargo run -p fs80h-cli -- tool convert --input capture.png --output capture.wsq
-cargo run -p fs80h-cli -- --json tool bench matching --templates 50000
-```
-
-`forensic compare` requires at least six geometrically consistent minutiae pairs
-before it can report a non-zero comparison score. `forensic liveness` exits with
-code 4 below its current heuristic threshold; it is not validated to ISO/IEC
-30107-3 or LivDet.
-
----
-
-## External Integration with NIST NFIQ 2
-
-To evaluate images generated by `fs80hctl` against the international standard **NIST NFIQ 2** (ISO/IEC 29794-4:2017):
-
-1. **Direct Terminal Usage**:
-   ```bash
-   # Evaluate TIFF file generated by fs80hctl
-   /usr/local/bin/nfiq2 -a -i forensic.tiff
-   ```
-2. **Automated Quality Gate Script**:
-   ```bash
-   # Captures and validates whether NFIQ2 score is >= 50
-   ./scripts/capture_with_nfiq2.sh --output sample.tiff --min-score 50
-   ```
-
-For detailed specifications, see [`docs/NFIQ2_INTEGRATION.md`](docs/NFIQ2_INTEGRATION.md).
-
----
-
-## Governance and Security
-
-- [LICENSE](LICENSE): MIT License.
-- [SECURITY.md](SECURITY.md): Biometric data policy, minimization, and vulnerability reporting.
-- [CONTRIBUTING.md](CONTRIBUTING.md): Contribution guidelines and strict prohibition of real biometrics in the repository.
+Licensed under the [MIT License](LICENSE).

@@ -30,6 +30,33 @@
 
 ## Installation & Building
 
+### macOS (Homebrew)
+
+Install the CLI from the `faeliaso/tap` tap:
+
+```bash
+brew install faeliaso/tap/fs80hctl
+```
+
+### Linux
+
+The release installer supports `x86_64` and `aarch64`. It verifies the release
+checksum, installs `fs80hctl`, and configures the Futronic udev rules. Download
+it, review it if desired, then run it with administrator privileges:
+
+```bash
+curl -fLO https://raw.githubusercontent.com/faeliaso/fs80hctl/main/scripts/install.sh
+sudo bash install.sh
+```
+
+After installing through either method, verify the installed version:
+
+```bash
+fs80hctl --version
+```
+
+### Build from source
+
 To build `fs80hctl`:
 
 ```bash
