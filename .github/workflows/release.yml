@@ -91,6 +91,7 @@ jobs:
           install -m 0755 "target/${TARGET}/release/fs80hctl" "${stage}/fs80hctl"
           cp -R man "${stage}/man"
           cp LICENSE "${stage}/LICENSE"
+          cp THIRD_PARTY_NOTICES.md "${stage}/THIRD_PARTY_NOTICES.md"
 
           if [[ "${TARGET}" == *-unknown-linux-* ]]; then
             cp -R udev systemd "${stage}/"

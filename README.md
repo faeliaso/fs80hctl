@@ -13,6 +13,14 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/faeliaso/fs80hctl/actions/workflows/release.yml"><img src="https://github.com/faeliaso/fs80hctl/actions/workflows/release.yml/badge.svg" alt="Release"></a>
+  <a href="https://github.com/faeliaso/fs80hctl/actions/workflows/ci.yml"><img src="https://github.com/faeliaso/fs80hctl/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/faeliaso/fs80hctl?label=license" alt="MIT License"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-2024-edition?logo=rust&logoColor=white" alt="Rust 2024"></a>
+  <a href="https://github.com/faeliaso/fs80hctl/releases"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-2ea44f" alt="macOS and Linux"></a>
+</p>
+
+<p align="center">
   <a href="#features">Features</a> ·
   <a href="#installation">Installation</a> ·
   <a href="#quick-start">Quick Start</a> ·
@@ -277,6 +285,7 @@ Read [TESTING.md](TESTING.md) before running physical tests. The script writes c
 | [docs/NFIQ2_INTEGRATION.md](docs/NFIQ2_INTEGRATION.md) | Integration guide for NIST NFIQ 2. |
 | [docs/FORENSIC_BIOMETRIC_VALIDATION.md](docs/FORENSIC_BIOMETRIC_VALIDATION.md) | Procedure for authorized biometric validation. |
 | [docs/FUZZING.md](docs/FUZZING.md) | Fuzz-testing setup and commands. |
+| [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Third-party component and license notices. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution rules and engineering standards. |
 | [SECURITY.md](SECURITY.md) | Security, privacy, and vulnerability-reporting policy. |
 
@@ -293,3 +302,5 @@ For questions, bug reports, or feature requests, open an [issue](https://github.
 ## License
 
 Licensed under the [MIT License](LICENSE).
+
+Distributed artifacts also include [third-party notices](THIRD_PARTY_NOTICES.md). See the libusb note there before redistributing an artifact that statically links the vendored USB library.
