@@ -1,4 +1,4 @@
-.TH FS80HCTL 1 "March 2026" "fs80hctl 0.1.0" "fs80hctl User Manual"
+.TH FS80HCTL 1 "November 2026" "fs80hctl 0.2.0" "fs80hctl User Manual"
 .SH NAME
 fs80hctl \- Technical acquisition, custody, and processing utility for Futronic FS80/FS80H scanners
 .SH SYNOPSIS
@@ -60,6 +60,9 @@ Inspect metadata, SHA-256 hash, and quality metrics of a biometric image.
 .TP
 .B verify PROBE [REFERENCE] [\-\-gallery DIR] [\-\-threshold T] [\-\-exit\-code]
 Compare biometric images (1:1 with reference file or 1:N against a gallery directory) and calculate technical similarity score.
+.TP
+.B template create|inspect|validate|convert|base64
+Create, inspect, validate, convert, or explicitly Base64-transport fingerprint minutiae templates. Supported profiles are ISO/IEC 19794-2:2005, ISO/IEC 19794-2:2011, ANSI INCITS 378:2004, ANSI INCITS 378:2009, and ANSI INCITS 378:2009/AM1. Template validation is structural and does not certify matching accuracy or PAD performance.
 .TP
 .B forensic annotate|compare|liveness|report
 Run technical minutiae annotation, corroborated-pair comparison, static liveness screening, or a JSON-only forensic report. Comparison requires at least six geometrically consistent minutiae pairs before it may return a non-zero score. The liveness screen is a heuristic, not a certified presentation-attack-detection result. Keep real biometric inputs and all derived output outside the repository; see docs/FORENSIC_BIOMETRIC_VALIDATION.md.

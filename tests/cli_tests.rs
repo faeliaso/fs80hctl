@@ -36,12 +36,47 @@ fn test_cli_version() {
     let output_long = bin().arg("--version").output().expect("failed to execute");
     assert!(output_long.status.success());
     let stdout_long = String::from_utf8_lossy(&output_long.stdout);
-    assert!(stdout_long.contains("fs80hctl 0.1.0"));
+    assert!(stdout_long.contains("fs80hctl 0.2.0"));
 
     let output_short = bin().arg("-V").output().expect("failed to execute");
     assert!(output_short.status.success());
     let stdout_short = String::from_utf8_lossy(&output_short.stdout);
-    assert!(stdout_short.contains("fs80hctl 0.1.0"));
+    assert!(stdout_short.contains("fs80hctl 0.2.0"));
+}
+
+#[test]
+fn test_cli_template_create_and_validate_iso2011() {
+    let temp = tempfile::tempdir().expect("temporary directory");
+    let output = temp.path().join("finger.fmr");
+    let created = bin()
+        .args([
+            "template",
+            "create",
+            fixture("reference_match.png").to_str().unwrap(),
+            "--template-format",
+            "iso2011",
+            "--finger",
+            "right-index",
+            "--output",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("create template");
+    assert!(created.status.success(), "{:?}", created);
+    assert!(output.is_file());
+
+    let validated = bin()
+        .args([
+            "template",
+            "validate",
+            output.to_str().unwrap(),
+            "--template-format",
+            "iso2011",
+        ])
+        .output()
+        .expect("validate template");
+    assert!(validated.status.success(), "{:?}", validated);
+    assert!(String::from_utf8_lossy(&validated.stdout).contains("VALID"));
 }
 
 #[test]
