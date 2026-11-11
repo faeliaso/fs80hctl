@@ -446,7 +446,7 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "fs80h-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -464,8 +464,9 @@ dependencies = [
 
 [[package]]
 name = "fs80h-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "base64",
  "blake3",
  "chrono",
  "hex",
@@ -486,7 +487,7 @@ dependencies = [
 
 [[package]]
 name = "fs80h-driver"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "fs80h-core",
