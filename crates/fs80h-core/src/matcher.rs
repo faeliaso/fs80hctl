@@ -248,6 +248,22 @@ pub fn match_one_to_n(
     .collect()
 }
 
+/// Exercises the deterministic minutia comparison against a logical 1:N pool.
+/// The immutable template is shared, avoiding multi-gigabyte allocations for a
+/// synthetic benchmark while retaining the matching work in each iteration.
+pub fn benchmark_matching(frame: &RawFrame, templates: usize) -> usize {
+    let minutiae = extract_minutiae(frame);
+    #[cfg(feature = "parallel")]
+    return (0..templates)
+        .into_par_iter()
+        .map(|_| compare_minutiae_sets(&minutiae, &minutiae).matched_minutiae)
+        .sum();
+    #[cfg(not(feature = "parallel"))]
+    (0..templates)
+        .map(|_| compare_minutiae_sets(&minutiae, &minutiae).matched_minutiae)
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

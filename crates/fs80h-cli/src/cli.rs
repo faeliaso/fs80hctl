@@ -150,6 +150,11 @@ pub enum Command {
         #[command(subcommand)]
         command: ForensicCommand,
     },
+    /// Image enhancement, interchange conversion, and deterministic benchmarks
+    Tool {
+        #[command(subcommand)]
+        command: ToolCommand,
+    },
     /// Run environment diagnostics (USB subsystem, device permissions, udev rules, groups, NFIQ2)
     Doctor,
     /// Run fast capture daemon listening on Unix Domain Socket
@@ -336,6 +341,72 @@ pub struct ForensicLivenessArgs {
 #[derive(Args, Debug)]
 pub struct ForensicReportArgs {
     pub image: PathBuf,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ToolCommand {
+    /// Restore ridge contrast using local-orientation Gabor filtering
+    Enhance(ToolEnhanceArgs),
+    /// Convert between raw L8, PNG, and WSQ fingerprint formats
+    Convert(ToolConvertArgs),
+    /// Run synthetic matching or image-I/O benchmarks
+    Bench {
+        #[command(subcommand)]
+        command: ToolBenchCommand,
+    },
+}
+
+#[derive(Args, Debug)]
+pub struct ToolEnhanceArgs {
+    #[arg(long)]
+    pub input: PathBuf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ToolImageFormat {
+    Raw,
+    Png,
+    Wsq,
+}
+
+#[derive(Args, Debug)]
+pub struct ToolConvertArgs {
+    #[arg(long)]
+    pub input: PathBuf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+    #[arg(long)]
+    pub from: Option<ToolImageFormat>,
+    #[arg(long)]
+    pub to: Option<ToolImageFormat>,
+    #[arg(long, default_value_t = 0.75)]
+    pub bitrate: f32,
+    #[arg(long, default_value_t = 500)]
+    pub dpi: u16,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ToolBenchCommand {
+    /// Measure parallel synthetic 1:N matching throughput
+    Matching(ToolBenchMatchingArgs),
+    /// Measure frame decode and in-memory conversion throughput
+    Io(ToolBenchIoArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ToolBenchMatchingArgs {
+    #[arg(long, default_value_t = 50_000)]
+    pub templates: usize,
+}
+
+#[derive(Args, Debug)]
+pub struct ToolBenchIoArgs {
+    #[arg(long, default_value_t = 100)]
+    pub iterations: usize,
+    #[arg(long)]
+    pub input: Option<PathBuf>,
 }
 
 #[derive(Serialize, Debug)]

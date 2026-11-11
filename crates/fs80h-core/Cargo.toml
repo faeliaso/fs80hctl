@@ -21,6 +21,7 @@ sha2.workspace = true
 rustfft.workspace = true
 thiserror.workspace = true
 tiff.workspace = true
+wsq-codec.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
@@ -32,4 +33,8 @@ path = "../../tests/verify_pipeline.rs"
 [[test]]
 name = "forensic_tests"
 path = "../../tests/forensic_tests.rs"
+
+[[test]]
+name = "tool_tests"
+path = "../../tests/tool_tests.rs"
 

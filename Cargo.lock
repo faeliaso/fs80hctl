@@ -479,6 +479,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.21",
  "tiff",
+ "wsq-codec",
 ]
 
 [[package]]
@@ -1539,6 +1540,12 @@ checksum = "8c3b93199df0ab874cdf0c6a94f0a0dc3423fe41f1cafb62b8bd7b1deb277aef"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "wsq-codec"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b24da52b6a30fe680c1b90739f89229127ea6b8d11b3116d99cf5c21d709cc16"
 
 [[package]]
 name = "zlib-rs"
