@@ -5,12 +5,16 @@ mod doctor;
 use clap::Parser;
 use cli::{
     CaptureArgs, Cli, CliError, CliExitCode, Command, ConvertArgs, DeviceCommand, EnrollArgs,
-    InspectArgs, MANUAL_TEXT, OutputFormat, Selection, VerifyArgs, VerifyOutput,
+    ForensicAnnotateArgs, ForensicCommand, ForensicCompareArgs, ForensicLivenessArgs,
+    ForensicReportArgs, InspectArgs, MANUAL_TEXT, OutputFormat, Selection, VerifyArgs,
+    VerifyOutput,
 };
 use doctor::run_doctor_with_mock;
 use fs80h_core::{
     CaptureManifest, DPI, DerivedManifest, FRAME_LEN, FingerprintScanner, HEIGHT, ImageFormat,
-    Manifest, RawFrame, WIDTH, compare_frames, compare_probe_to_gallery, evaluate_quality,
+    Manifest, RawFrame, WIDTH, analyze_liveness, annotate_frame, compare_frames,
+    compare_frames_image, compare_minutiae_sets, compare_probe_to_gallery, create_forensic_report,
+    evaluate_quality, extract_minutiae, match_minutiae_pairs,
 };
 use fs80h_driver::{
     DriverError, FutronicScanner, MockScenario, MockTransport, TransportError,
@@ -155,6 +159,13 @@ fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
         Command::Verify(args) => {
             handle_verify(args, format, cli.mock)?;
         }
+
+        Command::Forensic { command } => match command {
+            ForensicCommand::Annotate(args) => handle_forensic_annotate(args, format)?,
+            ForensicCommand::Compare(args) => handle_forensic_compare(args)?,
+            ForensicCommand::Liveness(args) => handle_forensic_liveness(args, format)?,
+            ForensicCommand::Report(args) => handle_forensic_report(args)?,
+        },
 
         Command::Doctor => {
             let report = run_doctor_with_mock(cli.mock);
@@ -941,6 +952,111 @@ fn handle_verify(
     }
 
     Ok(())
+}
+
+fn handle_forensic_annotate(
+    args: &ForensicAnnotateArgs,
+    format: OutputFormat,
+) -> Result<(), CliError> {
+    let frame = RawFrame::from_file(&args.input)
+        .map_err(|e| CliError::Operational(format!("failed to load forensic input: {e}")))?;
+    let minutiae = extract_minutiae(&frame);
+    annotate_frame(&frame, &minutiae)
+        .save(&args.output)
+        .map_err(|e| CliError::Operational(format!("failed to save annotation PNG: {e}")))?;
+    if format == OutputFormat::Json {
+        let normalized: Vec<_> = minutiae
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "x": m.x / WIDTH as f32,
+                    "y": m.y / HEIGHT as f32,
+                    "type": m.kind,
+                    "angle_deg": m.angle_deg,
+                    "quality": m.quality,
+                })
+            })
+            .collect();
+        print_json(&normalized)?;
+    } else {
+        println!(
+            "Annotated {} minutiae and wrote {}",
+            minutiae.len(),
+            args.output.display()
+        );
+    }
+    Ok(())
+}
+
+fn handle_forensic_compare(args: &ForensicCompareArgs) -> Result<(), CliError> {
+    if !args.threshold.is_finite() || !(0.0..=100.0).contains(&args.threshold) {
+        return Err(CliError::Operational(
+            "--threshold must be between 0 and 100".into(),
+        ));
+    }
+    let probe = RawFrame::from_file(&args.probe)
+        .map_err(|e| CliError::Operational(format!("failed to load probe: {e}")))?;
+    let reference = RawFrame::from_file(&args.reference)
+        .map_err(|e| CliError::Operational(format!("failed to load reference: {e}")))?;
+    let probe_minutiae = extract_minutiae(&probe);
+    let reference_minutiae = extract_minutiae(&reference);
+    let pairs = match_minutiae_pairs(&probe_minutiae, &reference_minutiae);
+    let report = compare_minutiae_sets(&probe_minutiae, &reference_minutiae);
+    compare_frames_image(
+        &probe,
+        &reference,
+        &probe_minutiae,
+        &reference_minutiae,
+        &pairs,
+    )
+    .save(&args.output)
+    .map_err(|e| CliError::Operational(format!("failed to save comparison PNG: {e}")))?;
+    let summary = serde_json::json!({
+        "score": report.score.as_f32(),
+        "paired_minutiae_count": pairs.len(),
+        "probe_minutiae_total": probe_minutiae.len(),
+        "reference_minutiae_total": reference_minutiae.len(),
+        "output": args.output,
+        "threshold_met": report.score >= args.threshold,
+    });
+    print_json(&summary)?;
+    if report.score < args.threshold {
+        return Err(CliError::Mismatch {
+            score: report.score.as_f32(),
+            threshold: args.threshold,
+        });
+    }
+    Ok(())
+}
+
+fn handle_forensic_liveness(
+    args: &ForensicLivenessArgs,
+    format: OutputFormat,
+) -> Result<(), CliError> {
+    let frame = RawFrame::from_file(&args.input)
+        .map_err(|e| CliError::Operational(format!("failed to load forensic input: {e}")))?;
+    let report = analyze_liveness(&frame);
+    match format {
+        OutputFormat::Json => print_json(&report)?,
+        OutputFormat::Text | OutputFormat::Raw => println!(
+            "Liveness score: {}/100 ({:?})",
+            report.liveness_score, report.classification
+        ),
+    }
+    if report.liveness_score < 65 {
+        return Err(CliError::LivenessSpoof {
+            score: report.liveness_score,
+            threshold: 65,
+        });
+    }
+    Ok(())
+}
+
+fn handle_forensic_report(args: &ForensicReportArgs) -> Result<(), CliError> {
+    let frame = RawFrame::from_file(&args.image)
+        .map_err(|e| CliError::Operational(format!("failed to load forensic input: {e}")))?;
+    // Report is deliberately JSON-only, independent of the global display mode.
+    print_json(&create_forensic_report(&args.image, &frame))
 }
 
 fn main() -> ExitCode {

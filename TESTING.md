@@ -36,3 +36,10 @@ The script outputs the captured image and manifest into a temporary directory `f
 
 > [!CAUTION]
 > Biometric data is sensitive. Always review, protect, and safely delete this test directory after completing your verification.
+
+## Supplied Biometric Dataset Validation
+
+For authorized validation using an externally supplied biometric dataset, follow
+[`docs/FORENSIC_BIOMETRIC_VALIDATION.md`](docs/FORENSIC_BIOMETRIC_VALIDATION.md).
+That protocol keeps real biometric data outside this repository and defines the
+required genuine/impostor and PAD evidence before changing a production threshold.

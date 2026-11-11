@@ -1,15 +1,23 @@
 use crate::domain::{HEIGHT, MatchScore, RawFrame, WIDTH};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MinutiaKind {
+    RidgeEnding,
+    Bifurcation,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Minutia {
     pub x: f32,
     pub y: f32,
     pub angle_deg: f32,
     pub quality: f32,
+    pub kind: MinutiaKind,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct MatchReport {
@@ -56,11 +64,20 @@ pub fn extract_minutiae(frame: &RawFrame) -> Vec<Minutia> {
             let variance = (sum_sq / n - (sum / n).powi(2)).max(0.0);
             if variance >= 80.0 && (gx.abs() + gy.abs()) > 50.0 {
                 let angle = (gy.atan2(gx) + PI / 2.0) * 180.0 / PI;
+                // This lightweight extractor does not skeletonize ridges.  The local
+                // orientation classification is deliberately deterministic and is
+                // surfaced as an annotation aid, not as an AFIS-grade assertion.
+                let kind = if gx.abs() >= gy.abs() {
+                    MinutiaKind::RidgeEnding
+                } else {
+                    MinutiaKind::Bifurcation
+                };
                 out.push(Minutia {
                     x: x as f32,
                     y: y as f32,
                     angle_deg: angle.rem_euclid(180.0),
                     quality: (variance / 500.0).clamp(0.0, 1.0),
+                    kind,
                 });
             }
         }
@@ -68,16 +85,13 @@ pub fn extract_minutiae(frame: &RawFrame) -> Vec<Minutia> {
     out
 }
 
-fn angle_distance(a: f32, b: f32) -> f32 {
-    let d = (a - b).abs().rem_euclid(180.0);
-    d.min(180.0 - d)
-}
-
-pub fn compare_minutiae_sets(p: &[Minutia], r: &[Minutia]) -> MatchReport {
-    let mut used = vec![false; r.len()];
-    let mut matched = 0;
-    for a in p {
-        if let Some((i, _)) = r
+/// Returns deterministic one-to-one homologous minutia indices using the same
+/// geometric tolerances as [`compare_minutiae_sets`].
+pub fn match_minutiae_pairs(probe: &[Minutia], reference: &[Minutia]) -> Vec<(usize, usize)> {
+    let mut used = vec![false; reference.len()];
+    let mut pairs = Vec::new();
+    for (probe_index, a) in probe.iter().enumerate() {
+        if let Some((reference_index, _)) = reference
             .iter()
             .enumerate()
             .filter(|(i, b)| {
@@ -91,10 +105,20 @@ pub fn compare_minutiae_sets(p: &[Minutia], r: &[Minutia]) -> MatchReport {
                 dx.partial_cmp(&dy).unwrap_or(std::cmp::Ordering::Equal)
             })
         {
-            used[i] = true;
-            matched += 1;
+            used[reference_index] = true;
+            pairs.push((probe_index, reference_index));
         }
     }
+    pairs
+}
+
+fn angle_distance(a: f32, b: f32) -> f32 {
+    let d = (a - b).abs().rem_euclid(180.0);
+    d.min(180.0 - d)
+}
+
+pub fn compare_minutiae_sets(p: &[Minutia], r: &[Minutia]) -> MatchReport {
+    let matched = match_minutiae_pairs(p, r).len();
     let denom = p.len().max(r.len());
     let raw_score = if denom == 0 {
         0.0

@@ -65,6 +65,8 @@ pub enum CliError {
     QualityRejected { score: u8, min_quality: u8 },
     #[error("hardware error: {0}")]
     Hardware(String),
+    #[error("presentation attack detected: liveness score {score} is below threshold {threshold}")]
+    LivenessSpoof { score: u8, threshold: u8 },
 }
 
 impl CliError {
@@ -75,6 +77,7 @@ impl CliError {
             Self::Timeout(_) => CliExitCode::CaptureTimeout,
             Self::QualityRejected { .. } => CliExitCode::QualityInsufficient,
             Self::Hardware(_) => CliExitCode::HardwareFailure,
+            Self::LivenessSpoof { .. } => CliExitCode::QualityInsufficient,
         }
     }
 }
@@ -142,6 +145,11 @@ pub enum Command {
     Inspect(InspectArgs),
     /// Compare biometric images (1:1 with reference file or 1:N with --gallery directory)
     Verify(VerifyArgs),
+    /// Headless forensic annotation, comparison, reporting, and static PAD screening
+    Forensic {
+        #[command(subcommand)]
+        command: ForensicCommand,
+    },
     /// Run environment diagnostics (USB subsystem, device permissions, udev rules, groups, NFIQ2)
     Doctor,
     /// Run fast capture daemon listening on Unix Domain Socket
@@ -285,6 +293,49 @@ pub struct VerifyArgs {
     /// Exit with code 2 if threshold is not met (biometric mismatch)
     #[arg(long)]
     pub exit_code: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ForensicCommand {
+    /// Extract and draw colored minutia markers over one fingerprint image
+    Annotate(ForensicAnnotateArgs),
+    /// Produce a side-by-side image with validated homologous minutia links
+    Compare(ForensicCompareArgs),
+    /// Run deterministic static presentation-attack screening
+    Liveness(ForensicLivenessArgs),
+    /// Emit an exclusively JSON forensic report
+    Report(ForensicReportArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ForensicAnnotateArgs {
+    #[arg(long)]
+    pub input: PathBuf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct ForensicCompareArgs {
+    #[arg(long)]
+    pub probe: PathBuf,
+    #[arg(long)]
+    pub reference: PathBuf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+    /// Minimum similarity score required to classify the comparison as a match
+    #[arg(long, default_value_t = 40.0)]
+    pub threshold: f32,
+}
+
+#[derive(Args, Debug)]
+pub struct ForensicLivenessArgs {
+    pub input: PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct ForensicReportArgs {
+    pub image: PathBuf,
 }
 
 #[derive(Serialize, Debug)]

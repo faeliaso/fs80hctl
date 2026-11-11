@@ -10,12 +10,15 @@ parallel = ["dep:rayon"]
 
 [dependencies]
 chrono.workspace = true
+blake3.workspace = true
 hex.workspace = true
+image.workspace = true
 png.workspace = true
 rayon = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+rustfft.workspace = true
 thiserror.workspace = true
 tiff.workspace = true
 
@@ -25,4 +28,8 @@ proptest.workspace = true
 [[test]]
 name = "verify_pipeline"
 path = "../../tests/verify_pipeline.rs"
+
+[[test]]
+name = "forensic_tests"
+path = "../../tests/forensic_tests.rs"
 
