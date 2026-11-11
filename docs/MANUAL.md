@@ -186,6 +186,23 @@ fs80hctl serve --socket-path /tmp/my_fs80h.sock
 fs80hctl --mock match serve --socket-path /tmp/test.sock
 ```
 
+The daemon keeps the scanner connection open and accepts one capture at a time. A client capture receives local JSON event messages while waiting for contact; on completion, the CLI decodes the returned frame and writes the requested image and custody manifest. The daemon itself does not persist biometric frames.
+
+For a shared machine, use a private parent directory instead of the default socket path:
+
+```bash
+# Terminal 1
+mkdir -p "$HOME/.local/run"
+chmod 700 "$HOME/.local/run"
+fs80hctl serve --socket-path "$HOME/.local/run/fs80h.sock"
+
+# Terminal 2
+fs80hctl capture --client --socket "$HOME/.local/run/fs80h.sock" \
+  --timeout 15 --min-quality 60 --output stream.png
+```
+
+Stop the daemon with `Ctrl+C`; it removes its socket during graceful shutdown.
+
 ---
 
 ### `enroll`
