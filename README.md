@@ -180,6 +180,23 @@ fs80hctl capture --image-format tiff --output forensic.tiff
 fs80hctl enroll --samples 5 --timeout 20 --min-quality 65 --output master.png
 ```
 
+### Low-latency capture daemon
+
+Keep the scanner open in one local process and request captures through a Unix-domain socket. Use a private directory when more than one local account can access the machine:
+
+```sh
+# Terminal 1: start the daemon.
+mkdir -p "$HOME/.local/run"
+chmod 700 "$HOME/.local/run"
+fs80hctl serve --socket-path "$HOME/.local/run/fs80h.sock"
+
+# Terminal 2: request a capture through the daemon.
+fs80hctl capture --client --socket "$HOME/.local/run/fs80h.sock" \
+  --timeout 15 --min-quality 60 --output capture.png
+```
+
+The daemon accepts one capture at a time, streams local JSON events internally, and does not persist biometric data itself. The client command writes the image and its custody manifest. Stop the daemon with `Ctrl+C`.
+
 ### Conversion and comparison
 
 ```sh
