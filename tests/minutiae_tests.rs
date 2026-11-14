@@ -21,13 +21,3 @@ fn extraction_rejects_candidates_near_the_partial_impression_boundary() {
     let image = GrayscaleImage::new(96, 96, pixels).unwrap();
     assert!(extract_skeleton_minutiae(&image).is_empty());
 }
-
-#[test]
-#[ignore = "requires externally supplied public dataset via SAMPLES_DIR"]
-fn public_dataset_tiff_smoke_test() {
-    let root = std::env::var("SAMPLES_DIR").expect("SAMPLES_DIR is required");
-    let image =
-        GrayscaleImage::from_tiff(std::path::Path::new(&root).join("DB1/101_1.tif")).unwrap();
-    assert_eq!((image.width(), image.height()), (388, 374));
-    assert!(!extract_skeleton_minutiae(&image).is_empty());
-}

@@ -97,7 +97,7 @@ impl MockTransport {
                     let mut pixels = frame.pixels().to_vec();
                     // Inject saturation noise so saturated_ratio exceeds tolerated limit
                     for (i, p) in pixels.iter_mut().enumerate() {
-                        if i % 3 == 0 {
+                        if i % 2 == 0 {
                             *p = 0;
                         }
                     }

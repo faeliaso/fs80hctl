@@ -298,6 +298,7 @@ Read [TESTING.md](TESTING.md) before running physical tests. The script writes c
 | Document | Contents |
 | --- | --- |
 | [docs/MANUAL.md](docs/MANUAL.md) | Command reference, options, formats, manifests, and exit codes. |
+| [docs/BIOMETRIC_ENGINE.md](docs/BIOMETRIC_ENGINE.md) | Pure-Rust biometric engine architecture, Gabor enhancement, 360° alignment, and ZeroFMR gates. |
 | [TESTING.md](TESTING.md) | Hardware-free tests, physical scanner testing, and authorized dataset validation. |
 | [docs/NFIQ2_INTEGRATION.md](docs/NFIQ2_INTEGRATION.md) | Integration guide for NIST NFIQ 2. |
 | [docs/FORENSIC_BIOMETRIC_VALIDATION.md](docs/FORENSIC_BIOMETRIC_VALIDATION.md) | Procedure for authorized biometric validation. |
