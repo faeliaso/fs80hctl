@@ -35,13 +35,14 @@ fn test_cli_help() {
 fn test_cli_version() {
     let output_long = bin().arg("--version").output().expect("failed to execute");
     assert!(output_long.status.success());
+    let expected = format!("fs80hctl {}", env!("CARGO_PKG_VERSION"));
     let stdout_long = String::from_utf8_lossy(&output_long.stdout);
-    assert!(stdout_long.contains("fs80hctl 0.2.0"));
+    assert!(stdout_long.contains(&expected));
 
     let output_short = bin().arg("-V").output().expect("failed to execute");
     assert!(output_short.status.success());
     let stdout_short = String::from_utf8_lossy(&output_short.stdout);
-    assert!(stdout_short.contains("fs80hctl 0.2.0"));
+    assert!(stdout_short.contains(&expected));
 }
 
 #[test]
