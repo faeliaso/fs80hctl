@@ -48,7 +48,7 @@ pub struct HardwareActor {
 }
 
 impl HardwareActor {
-    pub fn spawn(mock: Option<MockScenario>) -> Self {
+    pub fn spawn(mock: Option<MockScenario>, poll_interval_ms: u64) -> Self {
         let (task_tx, mut task_rx) = mpsc::channel::<WorkerTask>(16);
         let is_busy = Arc::new(AtomicBool::new(false));
         let captures_count = Arc::new(AtomicUsize::new(0));
@@ -89,10 +89,13 @@ impl HardwareActor {
                             let _ = event_tx.blocking_send(ServerEvent::WaitingFinger);
 
                             let event_tx_clone = event_tx.clone();
-                            let capture_result = scanner.wait_for_finger(
+                            let capture_result = scanner.wait_for_finger_with_options(
                                 timeout,
                                 min_quality,
                                 None,
+                                fs80h_driver::WaitOptions {
+                                    poll_interval: Duration::from_millis(poll_interval_ms),
+                                },
                                 |presence, _elapsed| {
                                     let coverage = (presence.contact_ratio * 100.0).round() as u8;
                                     let _ =

@@ -9,6 +9,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{mpsc, oneshot};
 
 pub struct DaemonConfig {
+    pub poll_interval_ms: u64,
     pub socket_path: PathBuf,
     pub mock: Option<MockScenario>,
     #[allow(dead_code)]
@@ -24,6 +25,7 @@ impl Default for DaemonConfig {
         };
 
         Self {
+            poll_interval_ms: 150,
             socket_path: default_path,
             mock: None,
             systemd_activation: false,
@@ -51,7 +53,7 @@ pub async fn run_daemon(
         config.socket_path
     );
 
-    let actor = Arc::new(HardwareActor::spawn(config.mock));
+    let actor = Arc::new(HardwareActor::spawn(config.mock, config.poll_interval_ms));
     let socket_path = config.socket_path.clone();
 
     tokio::select! {

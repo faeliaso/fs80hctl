@@ -322,3 +322,62 @@ For questions, bug reports, or feature requests, open an [issue](https://github.
 Licensed under the [MIT License](LICENSE).
 
 Distributed artifacts also include [third-party notices](THIRD_PARTY_NOTICES.md). See the libusb note there before redistributing an artifact that statically links the vendored USB library.
+
+## Persistent user configuration
+
+Run `fs80hctl config init` to create a commented TOML file without overwriting an
+existing file. Linux uses `$XDG_CONFIG_HOME/fs80hctl/config.toml` when XDG_CONFIG_HOME
+is absolute, otherwise `$HOME/.config/fs80hctl/config.toml`. macOS uses
+`$HOME/Library/Application Support/fs80hctl/config.toml`.
+
+Use `--config /absolute/path/config.toml` to select another file or `--no-config`
+to ignore user configuration. Explicit CLI arguments override supported environment
+variables, which override file values, which override built-in defaults.
+`FS80H_SOCKET_PATH` remains supported. No per-setting environment variables are added.
+
+`config path` reports the selected path, `config show` displays effective settings
+and their origins, and `config validate` checks the selected file. These commands
+emit JSON (also with `--json`). Missing default files are optional; explicit files
+and `config validate` require a readable file. Invalid files and unknown keys fail
+with an operational error. `config path`, `--help` and `--version` remain available
+when a configuration file is invalid.
+
+```toml
+schema_version = 1
+[capture]
+timeout_secs = 10
+min_quality = 50
+[enroll]
+samples = 3
+timeout_secs = 10
+min_quality = 50
+[verify]
+threshold = 40.0
+[forensic]
+comparison_threshold = 40.0
+[conversion]
+wsq_bitrate = 0.75
+dpi = 500
+[driver]
+poll_interval_ms = 150
+# [daemon]
+# socket_path = "/tmp/fs80h.sock"
+```
+
+Sections are optional. Durations and counts must be positive; quality and match
+thresholds must be in 0..100. Conversion settings apply to `tool convert`, not the
+physical sensor resolution. Driver polling settings apply to direct waiting and
+the daemon worker. Existing IPC request defaults remain unchanged.
+
+Each process reads configuration once. Restart the daemon after changes. The
+service runs as root and does not use the installing user's configuration. To use
+`/etc/fs80hctl/config.toml`, create that file and configure a systemd override:
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/usr/bin/fs80hctl --config /etc/fs80hctl/config.toml serve --systemd-activation
+```
+
+Sensor exposure/gain, algorithm tuning, profiles, automatic reload, and USB
+transport timeouts are not configured by this first version.
