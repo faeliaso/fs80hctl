@@ -4,7 +4,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
 fn bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_fs80hctl"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_fs80hctl"));
+    command.arg("--no-config");
+    command
 }
 
 struct DaemonHarness {
@@ -15,17 +17,40 @@ struct DaemonHarness {
 
 impl DaemonHarness {
     fn start(scenario: &str) -> Self {
+        Self::start_with_config(scenario, false)
+    }
+
+    fn start_with_config(scenario: &str, configured: bool) -> Self {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
         let socket_path = temp_dir.path().join("test_fs80h.sock");
 
-        let child = bin()
-            .args([
-                "--mock",
-                scenario,
-                "serve",
-                "--socket-path",
-                socket_path.to_str().unwrap(),
-            ])
+        let mut command = if configured {
+            let config = temp_dir.path().join("config.toml");
+            std::fs::write(
+                &config,
+                format!(
+                    "schema_version=1\n[driver]\npoll_interval_ms=7\n[daemon]\nsocket_path='{}'\n",
+                    socket_path.display()
+                ),
+            )
+            .unwrap();
+            let mut command = Command::new(env!("CARGO_BIN_EXE_fs80hctl"));
+            command
+                .arg("--config")
+                .arg(config)
+                .env_remove("FS80H_SOCKET_PATH");
+            command
+        } else {
+            let mut command = bin();
+            command
+                .args(["--mock", scenario, "serve", "--socket-path"])
+                .arg(&socket_path);
+            command
+        };
+        if configured {
+            command.args(["--mock", scenario, "serve"]);
+        }
+        let mut child = command
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
@@ -34,6 +59,17 @@ impl DaemonHarness {
         // Wait until socket file exists and is ready
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
+            if let Some(status) = child.try_wait().expect("check daemon status") {
+                use std::io::Read;
+                let mut stderr = String::new();
+                child
+                    .stderr
+                    .take()
+                    .unwrap()
+                    .read_to_string(&mut stderr)
+                    .unwrap();
+                panic!("daemon exited before becoming ready ({status}): {stderr}");
+            }
             if socket_path.exists() {
                 // Try connecting
                 if std::os::unix::net::UnixStream::connect(&socket_path).is_ok() {
@@ -236,4 +272,24 @@ fn test_cli_client_capture_command() {
         serde_json::from_slice(&out.stdout).expect("valid client capture json");
     assert_eq!(parsed["format"], "png");
     assert_eq!(parsed["daemon"], true);
+}
+
+#[test]
+fn configured_daemon_and_environment_socket_capture() {
+    let daemon = DaemonHarness::start_with_config("match", true);
+    let output_path = daemon._temp_dir.path().join("configured.png");
+    let output = bin()
+        .env("FS80H_SOCKET_PATH", &daemon.socket_path)
+        .args(["capture", "--client", "--json", "--output"])
+        .arg(&output_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output_path.exists());
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["daemon"], true);
 }

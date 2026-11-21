@@ -90,6 +90,12 @@ impl CliError {
     long_about = "Technical control CLI for Futronic FS80/FS80H optical fingerprint scanners, supporting frame acquisition, presence detection, multi-sample enrollment, SHA-256 chain of custody, forensic transcoding (PNG, TIFF, PGM, RAW, WSQ, JPEG 2000, JPEG, BMP), image inspection, and 1:1/1:N biometric verification."
 )]
 pub struct Cli {
+    #[arg(long, global = true, conflicts_with = "no_config")]
+    pub config: Option<PathBuf>,
+    #[arg(long, global = true)]
+    pub no_config: bool,
+    #[arg(skip = 150u64)]
+    pub poll_interval_ms: u64,
     /// Global output format: text (human-readable), json (structured payload), or raw (pure byte stream)
     #[arg(long, global = true, value_enum, default_value = "text")]
     pub format: OutputFormat,
@@ -128,6 +134,11 @@ impl Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Manage persistent user configuration
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     /// Create, inspect, validate, convert, and transport fingerprint minutiae templates
     Template {
         #[command(subcommand)]
@@ -291,6 +302,8 @@ pub struct Selection {
 
 #[derive(Args, Debug)]
 pub struct CaptureArgs {
+    #[arg(skip = 150u64)]
+    pub poll_interval_ms: u64,
     #[command(flatten)]
     pub selection: Selection,
     /// Output file path (default: capture.png)
@@ -327,6 +340,8 @@ pub struct CaptureArgs {
 
 #[derive(Args, Debug)]
 pub struct EnrollArgs {
+    #[arg(skip = 150u64)]
+    pub poll_interval_ms: u64,
     #[command(flatten)]
     pub selection: Selection,
     /// Output file path (default: enroll.png)
@@ -690,6 +705,14 @@ SUPPORTED FORMATS
     JPEG    Grayscale quality-95 derivative with 500 DPI JFIF density (lossy).
     BMP     Uncompressed L8 grayscale palette at 500 DPI.
 
+CONFIGURATION
+    config init|path|show|validate manages per-user TOML defaults.
+    --config PATH selects a file; --no-config disables loading.
+    CLI arguments override environment, file values, and built-in defaults.
+    Linux: $XDG_CONFIG_HOME/fs80hctl/config.toml or ~/.config/fs80hctl/config.toml.
+    macOS: ~/Library/Application Support/fs80hctl/config.toml.
+    Restart the daemon after configuration changes.
+
 CHAIN OF CUSTODY
     Every saved or converted image preserves an adjacent <IMAGE>.meta.json manifest.
     The manifest records the SHA-256 of the raw optical frame at acquisition, UTC timestamp,
@@ -703,3 +726,11 @@ EXIT CODES
     4   Biometric quality insufficient or liveness score below the heuristic threshold.
     5   USB hardware failure (device not found, permission denied, I/O error).
 "#;
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommand {
+    Init,
+    Path,
+    Show,
+    Validate,
+}

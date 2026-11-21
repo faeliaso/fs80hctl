@@ -182,13 +182,34 @@ impl<T: UsbTransport> Device<T> {
         timeout: Duration,
         min_quality: u8,
         dose: Option<u8>,
+        on_poll: F,
+    ) -> Result<RawFrame, DriverError>
+    where
+        F: FnMut(&fs80h_core::FingerPresence, Duration),
+    {
+        self.wait_for_finger_with_options(
+            timeout,
+            min_quality,
+            dose,
+            WaitOptions::default(),
+            on_poll,
+        )
+    }
+
+    /// Wait using an explicit polling interval, preserving the selected exposure dose.
+    pub fn wait_for_finger_with_options<F>(
+        &mut self,
+        timeout: Duration,
+        min_quality: u8,
+        dose: Option<u8>,
+        options: WaitOptions,
         mut on_poll: F,
     ) -> Result<RawFrame, DriverError>
     where
         F: FnMut(&fs80h_core::FingerPresence, Duration),
     {
         let start = Instant::now();
-        let poll_interval = Duration::from_millis(150);
+        let poll_interval = options.poll_interval;
 
         while start.elapsed() < timeout {
             let frame = match dose {
@@ -201,7 +222,7 @@ impl<T: UsbTransport> Device<T> {
             if presence.is_present && presence.quality.score >= min_quality {
                 return Ok(frame);
             }
-            std::thread::sleep(poll_interval);
+            std::thread::sleep(poll_interval.min(timeout.saturating_sub(start.elapsed())));
         }
 
         Err(DriverError::Timeout(timeout))
@@ -288,5 +309,61 @@ mod tests {
             DriverError::Timeout(_) => {}
             other => panic!("expected Timeout, got: {other:?}"),
         }
+    }
+}
+
+/// Operational settings for finger-presence polling.
+#[derive(Clone, Copy, Debug)]
+pub struct WaitOptions {
+    pub poll_interval: Duration,
+}
+impl Default for WaitOptions {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_millis(150),
+        }
+    }
+}
+
+#[cfg(test)]
+mod wait_options_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_wait_options_capture_with_variable_dose() {
+        let mut device = Device::mock(MockTransport::new(MockScenario::Match));
+        let frame = device
+            .wait_for_finger_with_options(
+                Duration::from_secs(2),
+                50,
+                Some(120),
+                WaitOptions {
+                    poll_interval: Duration::from_millis(1),
+                },
+                |_, _| {},
+            )
+            .unwrap();
+        assert_eq!(frame.pixels().len(), fs80h_core::FRAME_LEN);
+        assert_eq!(
+            WaitOptions::default().poll_interval,
+            Duration::from_millis(150)
+        );
+    }
+
+    #[test]
+    fn large_poll_interval_is_capped_by_remaining_timeout() {
+        let mut device = Device::mock(MockTransport::new(MockScenario::Empty));
+        let started = Instant::now();
+        let result = device.wait_for_finger_with_options(
+            Duration::from_millis(50),
+            50,
+            None,
+            WaitOptions {
+                poll_interval: Duration::from_secs(30),
+            },
+            |_, _| {},
+        );
+        assert!(matches!(result, Err(DriverError::Timeout(_))));
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 }

@@ -1,9 +1,10 @@
 mod cli;
+mod config;
 mod daemon;
 mod doctor;
 mod tool;
 
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches};
 use cli::{
     CaptureArgs, Cli, CliError, CliExitCode, Command, ConvertArgs, DeviceCommand, EnrollArgs,
     ForensicAnnotateArgs, ForensicCommand, ForensicCompareArgs, ForensicLivenessArgs,
@@ -123,6 +124,7 @@ fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
                 TemplateBase64Command::Decode(args) => handle_template_base64_decode(args, format)?,
             },
         },
+        Command::Config { .. } => unreachable!("handled before execution"),
         Command::Devices => {
             let devices =
                 list_devices_with_mock(cli.mock).map_err(|e| CliError::Hardware(e.to_string()))?;
@@ -237,6 +239,7 @@ fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
                 socket_path,
                 mock: cli.mock,
                 systemd_activation: serve_args.systemd_activation,
+                poll_interval_ms: cli.poll_interval_ms,
             };
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -299,10 +302,13 @@ fn handle_capture(
         );
 
         let frame = scanner
-            .wait_for_finger(
+            .wait_for_finger_with_options(
                 std::time::Duration::from_secs(args.timeout),
                 args.min_quality,
                 dose_opt,
+                fs80h_driver::WaitOptions {
+                    poll_interval: std::time::Duration::from_millis(args.poll_interval_ms),
+                },
                 |presence, elapsed| {
                     if presence.is_present {
                         eprint!(
@@ -460,10 +466,13 @@ fn handle_enroll(
             idx, args.samples
         );
         let frame = scanner
-            .wait_for_finger(
+            .wait_for_finger_with_options(
                 std::time::Duration::from_secs(args.timeout),
                 args.min_quality,
                 dose_opt,
+                fs80h_driver::WaitOptions {
+                    poll_interval: std::time::Duration::from_millis(args.poll_interval_ms),
+                },
                 |presence, elapsed| {
                     if presence.is_present {
                         eprint!(
@@ -1466,7 +1475,7 @@ fn handle_tool_bench_io(args: &ToolBenchIoArgs, format: OutputFormat) -> Result<
 
 fn main() -> ExitCode {
     // Try parsing arguments with custom error output
-    let cli = match Cli::try_parse() {
+    let matches = match Cli::command().try_get_matches() {
         Ok(c) => c,
         Err(err) => {
             if err.use_stderr() {
@@ -1479,10 +1488,17 @@ fn main() -> ExitCode {
         }
     };
 
+    let mut cli = Cli::from_arg_matches(&matches).expect("validated CLI");
     init_tracing(cli.verbose);
     let format = cli.resolved_format();
 
-    match execute(&cli, format) {
+    match config::prepare(&mut cli, &matches).and_then(|handled| {
+        if handled {
+            Ok(())
+        } else {
+            execute(&cli, format)
+        }
+    }) {
         Ok(()) => CliExitCode::Success.into(),
         Err(err) => {
             let code = err.exit_code();

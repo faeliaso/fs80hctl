@@ -1,4 +1,4 @@
-.TH FS80HCTL 1 "November 2026" "fs80hctl 0.2.0" "fs80hctl User Manual"
+.TH FS80HCTL 1 "November 2026" "fs80hctl 0.4.0" "fs80hctl User Manual"
 .SH NAME
 fs80hctl \- Technical acquisition, custody, and processing utility for Futronic FS80/FS80H scanners
 .SH SYNOPSIS
@@ -109,3 +109,19 @@ Biometric quality insufficient (rejected by quality evaluation) or liveness scor
 USB hardware failure (device not found, permission denied, I/O error).
 .SH SEE ALSO
 docs/MANUAL.md, README.md
+
+.SH CONFIGURATION
+Use config init to create a private TOML configuration without overwriting files.
+Linux uses $XDG_CONFIG_HOME/fs80hctl/config.toml (absolute paths only), falling back
+to $HOME/.config/fs80hctl/config.toml. macOS uses
+$HOME/Library/Application Support/fs80hctl/config.toml.
+.PP
+--config PATH selects a file; --no-config disables loading. Explicit CLI arguments
+override supported environment variables, file values, then built-in defaults.
+config path, config show, and config validate report paths, effective values with
+origins, and validity as JSON. schema_version must be 1; unknown keys are errors.
+.PP
+Supported sections: capture (timeout_secs, min_quality), enroll (samples,
+timeout_secs, min_quality), verify (threshold), forensic (comparison_threshold),
+conversion (wsq_bitrate, dpi for tool convert), driver (poll_interval_ms), and
+daemon (absolute socket_path). Restart the daemon after editing configuration.

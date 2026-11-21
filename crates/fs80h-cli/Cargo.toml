@@ -9,6 +9,7 @@ name = "fs80hctl"
 path = "src/main.rs"
 
 [dependencies]
+toml = "0.8"
 anyhow.workspace = true
 base64.workspace = true
 clap.workspace = true
@@ -50,3 +51,7 @@ maintainer-scripts = "../../debian"
 
 
 
+
+[[test]]
+name = "config_tests"
+path = "../../tests/config_tests.rs"
