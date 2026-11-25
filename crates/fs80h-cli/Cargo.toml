@@ -10,9 +10,9 @@ path = "src/main.rs"
 
 [dependencies]
 toml = "0.8"
-anyhow.workspace = true
 base64.workspace = true
 clap.workspace = true
+clap_complete.workspace = true
 fs80h-core = { path = "../fs80h-core" }
 fs80h-driver = { path = "../fs80h-driver" }
 serde.workspace = true

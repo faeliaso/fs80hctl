@@ -77,12 +77,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anyhow"
-version = "1.0.104"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
-
-[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -271,6 +265,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "4.6.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a35200383f20018d41c14d1ab19c1727c697f544492143f7d93aa39f0187848"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "clap_derive"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -446,11 +449,11 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "fs80h-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
- "anyhow",
  "base64",
  "clap",
+ "clap_complete",
  "fs80h-core",
  "fs80h-driver",
  "serde",
@@ -465,7 +468,7 @@ dependencies = [
 
 [[package]]
 name = "fs80h-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "base64",
  "blake3",
@@ -488,7 +491,7 @@ dependencies = [
 
 [[package]]
 name = "fs80h-driver"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "clap",
  "fs80h-core",

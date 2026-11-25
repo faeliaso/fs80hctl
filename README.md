@@ -125,6 +125,21 @@ cargo build --release --workspace
 ./target/release/fs80hctl --version
 ```
 
+### Shell autocomplete
+
+Install completion for your shell without scanner or administrator access:
+
+```sh
+fs80hctl completions install zsh
+# or: fs80hctl completions install bash
+# or: fs80hctl completions install fish
+# or: fs80hctl completions install powershell
+```
+
+Open a new terminal after installation. The command creates missing user
+directories and can be run again safely. See [the manual](docs/MANUAL.md#shell-autocomplete)
+for the file locations and startup behavior.
+
 ## Quick Start
 
 After installation, check the environment and discover connected scanners:

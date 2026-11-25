@@ -1,4 +1,5 @@
 mod cli;
+mod completions;
 mod config;
 mod daemon;
 mod doctor;
@@ -6,13 +7,13 @@ mod tool;
 
 use clap::{CommandFactory, FromArgMatches};
 use cli::{
-    CaptureArgs, Cli, CliError, CliExitCode, Command, ConvertArgs, DeviceCommand, EnrollArgs,
-    ForensicAnnotateArgs, ForensicCommand, ForensicCompareArgs, ForensicLivenessArgs,
-    ForensicReportArgs, InspectArgs, MANUAL_TEXT, OutputFormat, Selection, TemplateBase64Command,
-    TemplateBase64DecodeArgs, TemplateCommand, TemplateConvertArgs, TemplateCreateArgs,
-    TemplateFingerArg, TemplateFormatArg, TemplateImpressionArg, TemplateInspectArgs,
-    ToolBenchCommand, ToolBenchIoArgs, ToolBenchMatchingArgs, ToolCommand, ToolConvertArgs,
-    ToolEnhanceArgs, ToolImageFormat, VerifyArgs, VerifyOutput,
+    CaptureArgs, Cli, CliError, CliExitCode, Command, CompletionsCommand, ConvertArgs,
+    DeviceCommand, EnrollArgs, ForensicAnnotateArgs, ForensicCommand, ForensicCompareArgs,
+    ForensicLivenessArgs, ForensicReportArgs, InspectArgs, MANUAL_TEXT, OutputFormat, Selection,
+    TemplateBase64Command, TemplateBase64DecodeArgs, TemplateCommand, TemplateConvertArgs,
+    TemplateCreateArgs, TemplateFingerArg, TemplateFormatArg, TemplateImpressionArg,
+    TemplateInspectArgs, ToolBenchCommand, ToolBenchIoArgs, ToolBenchMatchingArgs, ToolCommand,
+    ToolConvertArgs, ToolEnhanceArgs, ToolImageFormat, VerifyArgs, VerifyOutput,
 };
 use doctor::run_doctor_with_mock;
 use fs80h_core::{
@@ -114,6 +115,9 @@ fn map_driver_error(err: DriverError) -> CliError {
 
 fn execute(cli: &Cli, format: OutputFormat) -> Result<(), CliError> {
     match &cli.command {
+        Command::Completions {
+            command: CompletionsCommand::Install { shell },
+        } => completions::install(*shell, format)?,
         Command::Template { command } => match command {
             TemplateCommand::Create(args) => handle_template_create(args, format)?,
             TemplateCommand::Inspect(args) => handle_template_inspect(args, format, false)?,
@@ -1492,13 +1496,18 @@ fn main() -> ExitCode {
     init_tracing(cli.verbose);
     let format = cli.resolved_format();
 
-    match config::prepare(&mut cli, &matches).and_then(|handled| {
-        if handled {
-            Ok(())
-        } else {
-            execute(&cli, format)
-        }
-    }) {
+    let result = if matches!(cli.command, Command::Completions { .. }) {
+        execute(&cli, format)
+    } else {
+        config::prepare(&mut cli, &matches).and_then(|handled| {
+            if handled {
+                Ok(())
+            } else {
+                execute(&cli, format)
+            }
+        })
+    };
+    match result {
         Ok(()) => CliExitCode::Success.into(),
         Err(err) => {
             let code = err.exit_code();
