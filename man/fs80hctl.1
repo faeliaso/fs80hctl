@@ -1,4 +1,4 @@
-.TH FS80HCTL 1 "November 2026" "fs80hctl 0.4.0" "fs80hctl User Manual"
+.TH FS80HCTL 1 "November 2026" "fs80hctl 0.5.0" "fs80hctl User Manual"
 .SH NAME
 fs80hctl \- Technical acquisition, custody, and processing utility for Futronic FS80/FS80H scanners
 .SH SYNOPSIS
@@ -36,6 +36,10 @@ Print help information and syntax.
 .BR \-V ", " \-\-version
 Print installed program version.
 .SH COMMANDS
+.TP
+.B completions install bash|zsh|fish|powershell
+Install shell completion for the current user. Creates needed directories and
+updates the selected shell's startup configuration. Open a new terminal to use it.
 .TP
 .B doctor
 Run environment diagnostics: USB subsystem, device access permissions, udev rules (Linux), user groups, external NFIQ2 availability, and filesystem write.

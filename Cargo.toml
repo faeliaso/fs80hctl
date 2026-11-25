@@ -7,15 +7,15 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-anyhow = "1.0"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 clap = { version = "4.5", features = ["derive", "env"] }
+clap_complete = "4.6"
 hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 openjpeg2-pure-rs = "0.1.1"

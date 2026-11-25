@@ -134,6 +134,11 @@ impl Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Install shell completion for the current user
+    Completions {
+        #[command(subcommand)]
+        command: CompletionsCommand,
+    },
     /// Manage persistent user configuration
     Config {
         #[command(subcommand)]
@@ -177,6 +182,20 @@ pub enum Command {
     Serve(ServeArgs),
     /// Display technical manual and quick reference guide
     Manual,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CompletionsCommand {
+    /// Install completion for one shell
+    Install { shell: CompletionShell },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum CompletionShell {
+    Bash,
+    Zsh,
+    Fish,
+    Powershell,
 }
 
 #[derive(Subcommand, Debug)]
@@ -573,6 +592,10 @@ GLOBAL OPTIONS
         Print installed fs80hctl version.
 
 SUBCOMMANDS
+    completions install <bash|zsh|fish|powershell>
+        Install shell completion for the current user. Creates required directories
+        and configures shell startup. Open a new terminal after installation.
+
     doctor
         Verify runtime environment: USB subsystem (libusb), scanner access permissions,
         udev rules (Linux), user groups, external NFIQ2 availability, and working directory write.

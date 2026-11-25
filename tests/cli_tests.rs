@@ -31,6 +31,111 @@ fn test_cli_help() {
     assert!(stdout.contains("manual"));
     assert!(stdout.contains("List connected"));
     assert!(stdout.contains("Capture an optical"));
+    assert!(stdout.contains("completions"));
+}
+
+#[test]
+fn test_cli_completions_install_is_idempotent() {
+    for (shell, relative, profile) in [
+        (
+            "bash",
+            ".local/share/fs80hctl/completions/fs80hctl.bash",
+            Some(".bashrc"),
+        ),
+        ("zsh", ".zfunc/_fs80hctl", Some(".zshrc")),
+        ("fish", ".config/fish/completions/fs80hctl.fish", None),
+        (
+            "powershell",
+            ".config/fs80hctl/completions/fs80hctl.ps1",
+            Some(".config/powershell/Microsoft.PowerShell_profile.ps1"),
+        ),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        for _ in 0..2 {
+            let output = bin()
+                .args(["completions", "install", shell])
+                .env("HOME", temp.path())
+                .env_remove("XDG_CONFIG_HOME")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{shell}: {output:?}");
+        }
+        let script = std::fs::read_to_string(temp.path().join(relative)).unwrap();
+        assert!(script.contains("fs80hctl"), "{shell}");
+        if let Some(profile) = profile {
+            let content = std::fs::read_to_string(temp.path().join(profile)).unwrap();
+            assert_eq!(
+                content.matches("# fs80hctl completion").count(),
+                1,
+                "{shell}"
+            );
+            if shell == "powershell" {
+                assert!(content.contains("\"$HOME/.config/fs80hctl/completions/fs80hctl.ps1\""));
+            }
+        }
+    }
+}
+
+#[test]
+fn test_cli_zsh_completion_precedes_compinit() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join(".zshrc"),
+        "export TEST=1\nautoload -Uz compinit\ncompinit\n",
+    )
+    .unwrap();
+    let output = bin()
+        .args(["completions", "install", "zsh"])
+        .env("HOME", temp.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let content = std::fs::read_to_string(temp.path().join(".zshrc")).unwrap();
+    assert!(content.find("fpath=").unwrap() < content.find("compinit").unwrap());
+    assert!(content.contains("export TEST=1"));
+}
+
+#[test]
+fn test_cli_completions_install_json_skips_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_fs80hctl"))
+        .args([
+            "--json",
+            "--config",
+            "/nonexistent/fs80hctl.toml",
+            "completions",
+            "install",
+            "fish",
+        ])
+        .env("HOME", temp.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["status"], "installed");
+    assert_eq!(value["shell"], "fish");
+    assert_eq!(
+        value["path"],
+        temp.path()
+            .join(".config/fish/completions/fs80hctl.fish")
+            .to_str()
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_cli_fish_completion_uses_xdg_config_home() {
+    let temp = tempfile::tempdir().unwrap();
+    let xdg = temp.path().join("custom-config");
+    let output = bin()
+        .args(["completions", "install", "fish"])
+        .env("HOME", temp.path())
+        .env("XDG_CONFIG_HOME", &xdg)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(xdg.join("fish/completions/fs80hctl.fish").is_file());
 }
 
 #[test]

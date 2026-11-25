@@ -9,6 +9,7 @@
 1. [Installation & Building](#installation--building)
 2. [General Syntax](#general-syntax)
 3. [Global Options](#global-options)
+   - [Shell autocomplete](#shell-autocomplete)
 4. [Available Commands](#available-commands)
    - [doctor (Environment Diagnostics)](#doctor)
    - [devices (Device Discovery)](#devices)
@@ -93,6 +94,23 @@ fs80hctl manual
 ---
 
 ## Global Options
+
+### Shell autocomplete
+
+Run `fs80hctl completions install <shell>` with `bash`, `zsh`, `fish`, or
+`powershell`, then open a new terminal. Installation is per user, needs no
+scanner or administrator privileges, creates missing directories, and is safe
+to repeat. It does not load completion into an already running shell.
+
+| Shell | Generated file | Startup integration |
+|---|---|---|
+| Bash | `~/.local/share/fs80hctl/completions/fs80hctl.bash` | Adds a `source` line to `~/.bashrc`. |
+| Zsh | `~/.zfunc/_fs80hctl` | Adds `~/.zfunc` to `fpath` in `~/.zshrc` before `compinit`; initializes `compinit` if absent. |
+| Fish | `$XDG_CONFIG_HOME/fish/completions/fs80hctl.fish` or `~/.config/fish/completions/fs80hctl.fish` | Fish loads it from its completion directory. |
+| PowerShell | `~/.config/fs80hctl/completions/fs80hctl.ps1` | Adds a load line to the current user's PowerShell profile. |
+
+The command updates only the selected shell. Re-running refreshes the generated
+script without adding another startup line. Use `--json` for structured output.
 
 | Option | Description |
 |---|---|
