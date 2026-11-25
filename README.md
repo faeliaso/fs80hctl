@@ -322,22 +322,6 @@ Read [TESTING.md](TESTING.md) before running physical tests. The script writes c
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution rules and engineering standards. |
 | [SECURITY.md](SECURITY.md) | Security, privacy, and vulnerability-reporting policy. |
 
-## Contributing
-
-Contributions are welcome. Keep changes focused, add deterministic tests for new behavior, and run the relevant checks before opening a pull request. Never commit real biometric data, custody manifests, or captures.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete contribution process and workspace rules.
-
-## Support
-
-For questions, bug reports, or feature requests, open an [issue](https://github.com/faeliaso/fs80hctl/issues). For a vulnerability or suspected biometric-data exposure, follow the private reporting process in [SECURITY.md](SECURITY.md).
-
-## License
-
-Licensed under the [MIT License](LICENSE).
-
-Distributed artifacts also include [third-party notices](THIRD_PARTY_NOTICES.md). See the libusb note there before redistributing an artifact that statically links the vendored USB library.
-
 ## Persistent user configuration
 
 Run `fs80hctl config init` to create a commented TOML file without overwriting an
@@ -396,3 +380,19 @@ ExecStart=/usr/bin/fs80hctl --config /etc/fs80hctl/config.toml serve --systemd-a
 
 Sensor exposure/gain, algorithm tuning, profiles, automatic reload, and USB
 transport timeouts are not configured by this first version.
+
+## Contributing
+
+Contributions are welcome. Keep changes focused, add deterministic tests for new behavior, and run the relevant checks before opening a pull request. Never commit real biometric data, custody manifests, or captures.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete contribution process and workspace rules.
+
+## Support
+
+For questions, bug reports, or feature requests, open an [issue](https://github.com/faeliaso/fs80hctl/issues). For a vulnerability or suspected biometric-data exposure, follow the private reporting process in [SECURITY.md](SECURITY.md).
+
+## License
+
+Licensed under the [MIT License](LICENSE).
+
+Distributed artifacts also include [third-party notices](THIRD_PARTY_NOTICES.md). See the libusb note there before redistributing an artifact that statically links the vendored USB library.
